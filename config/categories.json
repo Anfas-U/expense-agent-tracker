@@ -1,0 +1,104 @@
+{
+  "categories": [
+    {
+      "name": "Groceries",
+      "description": "Supermarkets, fresh vegetables, fruits, daily dairy and grocery essentials",
+      "keywords": ["grocery", "groceries", "supermarket", "blinkit", "zepto", "instamart", "bigbasket", "vegetables", "veggies", "milk", "fruits", "bread", "ration"]
+    },
+    {
+      "name": "Dining",
+      "description": "Restaurants, cafes, food delivery, street food, coffee, snacks",
+      "keywords": [
+        "swiggy", "zomato", "cafe", "restaurant", "lunch", "dinner", "breakfast",
+        "coffee", "tea", "chai", "burger", "pizza", "starbucks", "dosa", "biryani",
+        "sandwich", "bakery", "ice cream", "juice", "coconut water", "snacks"
+      ]
+    },
+    {
+      "name": "Transport",
+      "description": "Taxis, cabs, auto-rickshaws, metro, bus, train, flights, parking, tolls",
+      "keywords": [
+        "uber", "ola", "rapido", "metro", "auto", "bus", "train", "flight", "cab",
+        "irctc", "parking", "toll", "car wash"
+      ]
+    },
+    {
+      "name": "Fuel",
+      "description": "Petrol, diesel, CNG, EV charging",
+      "keywords": ["petrol", "diesel", "fuel", "cng", "hpcl", "bpcl", "iocl", "shell"]
+    },
+    {
+      "name": "Utilities",
+      "description": "Electricity, water bills, gas, Wi-Fi, mobile recharges, municipal bills",
+      "keywords": [
+        "electricity", "water bill", "gas", "wifi", "broadband", "jio", "airtel",
+        "recharge", "bescom", "bill", "plumber", "cleaning", "laundry", "newspaper bill"
+      ]
+    },
+    {
+      "name": "Rent",
+      "description": "House rent, flat maintenance, room rent, PG rent",
+      "keywords": ["rent", "maintenance", "landlord", "pg fee", "room rent"]
+    },
+    {
+      "name": "Shopping",
+      "description": "Clothing, electronics, household items, personal goods",
+      "keywords": [
+        "amazon", "flipkart", "myntra", "clothes", "shoes", "electronics", "mall",
+        "shopping", "shirt", "zara", "gift"
+      ]
+    },
+    {
+      "name": "Health",
+      "description": "Doctor visits, pharmacy, medicines, lab tests, gym membership",
+      "keywords": [
+        "pharmacy", "medicine", "doctor", "hospital", "clinic", "apollo", "1mg",
+        "gym", "fitness", "blood test"
+      ]
+    },
+    {
+      "name": "Entertainment",
+      "description": "Movies, concerts, events, gaming, outings",
+      "keywords": ["movie", "cinema", "bookmyshow", "pvr", "inox", "concert", "game", "gaming"]
+    },
+    {
+      "name": "Education",
+      "description": "Tuition, courses, books, educational stationery, certification fees",
+      "keywords": [
+        "book", "books", "tuition", "course", "udemy", "coursera", "school", "college",
+        "fees", "stationery", "pen", "notebook"
+      ]
+    },
+    {
+      "name": "Travel",
+      "description": "Hotels, vacations, travel tickets, tourism expenses",
+      "keywords": ["hotel", "airbnb", "resort", "trip", "vacation", "makemytrip", "agoda", "booking.com"]
+    },
+    {
+      "name": "Subscriptions",
+      "description": "Streaming, SaaS, recurring memberships",
+      "keywords": ["netflix", "spotify", "prime", "youtube", "hotstar", "icloud", "chatgpt", "github"]
+    },
+    {
+      "name": "Other",
+      "description": "Uncategorized or miscellaneous spending",
+      "keywords": ["misc", "other", "cash", "haircut", "shoe polish", "courier", "donation"]
+    }
+  ],
+  "default_category": "Other",
+  "merchant_rules": {
+    "swiggy": "Dining",
+    "zomato": "Dining",
+    "starbucks": "Dining",
+    "blinkit": "Groceries",
+    "zepto": "Groceries",
+    "instamart": "Groceries",
+    "bigbasket": "Groceries",
+    "uber": "Transport",
+    "ola": "Transport",
+    "rapido": "Transport",
+    "netflix": "Subscriptions",
+    "spotify": "Subscriptions",
+    "makemytrip": "Travel"
+  }
+}
