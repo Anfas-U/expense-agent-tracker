@@ -127,14 +127,15 @@ def query_expenses(
     Returns:
         Exact calculated metrics including total amount, breakdown, and percentage changes.
     """
-    tz = pytz.timezone(settings.default_timezone)
+    local_db = get_local_db()
+    user_settings = local_db.get_user_settings()
+    tz = pytz.timezone(user_settings["default_timezone"])
     base_date = dt.datetime.now(tz).date()
 
     start_date, end_date, prev_period = resolve_time_period(
         time_period, start_date_iso, end_date_iso, base_date
     )
 
-    local_db = get_local_db()
     all_expenses = local_db.get_all_expenses(limit=1000)
 
     # Category normalization: "food" -> ["Groceries", "Dining"]
@@ -221,7 +222,7 @@ def query_expenses(
         "status": "success",
         "total_amount": round(total_amount, 2),
         "entry_count": entry_count,
-        "currency": settings.default_currency,
+        "currency": user_settings["default_currency"],
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "category_breakdown": category_breakdown,

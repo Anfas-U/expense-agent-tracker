@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from src.models.schemas import ExpenseEntry
 from src.storage.local_db import get_local_db
+from src.storage.web_context import current_session_state
 
 
 class OperationRecord(BaseModel):
@@ -65,5 +66,5 @@ _session_state_instance = SessionState()
 
 def get_session_state() -> SessionState:
     """Get singleton SessionState instance."""
-    return _session_state_instance
+    return current_session_state() or _session_state_instance
 

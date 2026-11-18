@@ -92,7 +92,7 @@ def manage_recurring(
 
 def check_and_log_due_recurring(reference_date: Optional[dt.date] = None) -> List[Dict[str, Any]]:
     """Check all active recurring expenses and auto-log any due for the current month."""
-    tz = pytz.timezone(settings.default_timezone)
+    tz = pytz.timezone(get_local_db().get_user_settings()["default_timezone"])
     today = reference_date or dt.datetime.now(tz).date()
     current_month_prefix = today.strftime("%Y-%m")
 

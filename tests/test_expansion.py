@@ -32,6 +32,10 @@ def test_multi_currency_conversion():
     assert conv_eur == 4600.0  # 50 * 92
     assert "Original: EUR 50.00" in note_eur
 
+    converted, base, _ = convert_to_base_currency(100.0, "GBP", "USD")
+    assert converted == 126.44
+    assert base == "USD"
+
 
 def test_parse_expense_with_foreign_currency():
     """Verify parser extracts and converts '$25 for dinner'."""

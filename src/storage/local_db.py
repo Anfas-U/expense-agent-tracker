@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from config.settings import settings
 from src.models.schemas import ExpenseEntry, ExpenseSource
+from src.storage.web_context import current_database
 
 
 class LocalDatabase:
@@ -233,6 +234,23 @@ class LocalDatabase:
             rows = cursor.fetchall()
             return {r["category"]: float(r["monthly_limit"]) for r in rows}
 
+    def delete_budget(self, category: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM budgets WHERE category = ?", (category,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_user_settings(self) -> Dict[str, str]:
+        return {
+            "default_currency": settings.default_currency,
+            "default_timezone": settings.default_timezone,
+        }
+
+    def set_user_setting(self, key: str, value: str) -> None:
+        if key not in {"default_currency", "default_timezone"}:
+            raise ValueError(f"Unsupported user setting: {key}")
+
     def add_recurring_expense(
         self, title: str, amount: float, category: str, day_of_month: int = 1, notes: Optional[str] = None
     ) -> str:
@@ -300,4 +318,4 @@ _local_db_instance = LocalDatabase()
 
 def get_local_db() -> LocalDatabase:
     """Get singleton LocalDatabase instance."""
-    return _local_db_instance
+    return current_database() or _local_db_instance

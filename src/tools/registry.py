@@ -4,6 +4,7 @@ import inspect
 import json
 from typing import Any, Callable, Dict, List, Optional, get_type_hints
 from pydantic import BaseModel
+from src.storage.web_context import web_request_active
 
 
 class ToolDefinition(BaseModel):
@@ -100,6 +101,8 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
     """Get OpenAPI/JSON schemas for all registered tools formatted for LLM function calling."""
     schemas = []
     for tool_def in _TOOL_REGISTRY.values():
+        if web_request_active() and tool_def.name == "extract_receipt":
+            continue
         schemas.append({
             "name": tool_def.name,
             "description": tool_def.description,
@@ -110,6 +113,8 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
 
 def execute_tool(name: str, arguments: Dict[str, Any]) -> Any:
     """Execute a registered tool by name with provided arguments."""
+    if web_request_active() and name == "extract_receipt":
+        raise ValueError("Receipt extraction from server file paths is disabled in the web interface.")
     tool = get_tool(name)
     if not tool:
         raise ValueError(f"Tool '{name}' is not registered.")

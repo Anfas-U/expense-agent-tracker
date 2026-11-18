@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     default_currency: str = Field(default="INR", description="Default ISO currency code")
     default_timezone: str = Field(default="Asia/Kolkata", description="Default user timezone")
 
-    # Single-user web access
-    web_username: str = Field(default="", description="Username required to access the web interface")
-    web_password: str = Field(default="", description="Password required to access the web interface")
+    # Hosted multi-user web access
+    database_url: str = Field(default="", description="PostgreSQL connection URL for hosted accounts and user data")
+    cookie_secure: bool = Field(default=True, description="Set session cookies Secure (disable only for local HTTP tests)")
 
     # File Paths
     data_dir: Path = Field(default=BASE_DIR / "data")

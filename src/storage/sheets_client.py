@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from config.settings import settings
 from src.models.schemas import ExpenseEntry
+from src.storage.web_context import web_request_active
 
 
 class SpreadsheetStorage:
@@ -204,7 +205,27 @@ class SpreadsheetStorage:
 _spreadsheet_storage = SpreadsheetStorage()
 
 
-def get_spreadsheet_storage() -> SpreadsheetStorage:
+class _NoopSpreadsheetStorage:
+    """Prevent web account data from being copied into a shared spreadsheet or CSV."""
+
+    is_google_connected = False
+
+    def append_expense(self, entry: ExpenseEntry) -> bool:
+        return True
+
+    def update_expense_row(self, entry_id: str, updates: Dict[str, Any]) -> bool:
+        return True
+
+    def delete_expense_row(self, entry_id: str) -> bool:
+        return True
+
+
+_web_spreadsheet_storage = _NoopSpreadsheetStorage()
+
+
+def get_spreadsheet_storage() -> Any:
     """Get the active spreadsheet storage instance."""
+    if web_request_active():
+        return _web_spreadsheet_storage
     return _spreadsheet_storage
 

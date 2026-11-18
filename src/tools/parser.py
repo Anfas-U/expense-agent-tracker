@@ -10,6 +10,7 @@ from config.settings import settings
 from src.models.schemas import ParsedExpenseItem
 from src.tools.currency_converter import detect_currency_code, convert_to_base_currency
 from src.tools.registry import register_tool
+from src.storage.local_db import get_local_db
 
 
 WEEKDAY_MAP = {
@@ -53,7 +54,9 @@ def clean_amount(val_str: str) -> float:
     return float(clean)
 
 
-def parse_single_clause(clause: str, tx_date: dt.date) -> Optional[ParsedExpenseItem]:
+def parse_single_clause(
+    clause: str, tx_date: dt.date, default_currency: Optional[str] = None
+) -> Optional[ParsedExpenseItem]:
     """Extract amount, merchant, and payment method from a single clause."""
     clause = clause.strip()
     if not clause:
@@ -64,7 +67,8 @@ def parse_single_clause(clause: str, tx_date: dt.date) -> Optional[ParsedExpense
     curr_suffix = r"(?:\s*(?:rs\.?|rupees|inr|usd|eur|gbp|aed))?"
 
     amount = None
-    currency = settings.default_currency
+    default_currency = default_currency or settings.default_currency
+    currency = default_currency
     merchant = ""
     payment_method = None
     notes = None
@@ -138,7 +142,7 @@ def parse_single_clause(clause: str, tx_date: dt.date) -> Optional[ParsedExpense
         detected_curr = "AED"
 
     if detected_curr != "INR":
-        amount, currency, notes = convert_to_base_currency(amount, detected_curr, settings.default_currency)
+        amount, currency, notes = convert_to_base_currency(amount, detected_curr, default_currency)
 
     # Clean up merchant string
     merchant = re.sub(r"\b(yesterday|today|day before yesterday|last \w+)\b", "", merchant, flags=re.IGNORECASE)
@@ -170,7 +174,8 @@ def parse_single_clause(clause: str, tx_date: dt.date) -> Optional[ParsedExpense
 )
 def parse_expense(text: str, reference_date_iso: Optional[str] = None) -> List[Dict[str, Any]]:
     """Parse a user text message into one or more structured expense items."""
-    tz = pytz.timezone(settings.default_timezone)
+    user_settings = get_local_db().get_user_settings()
+    tz = pytz.timezone(user_settings["default_timezone"])
     if reference_date_iso:
         try:
             base_date = dt.date.fromisoformat(reference_date_iso)
@@ -191,13 +196,13 @@ def parse_expense(text: str, reference_date_iso: Optional[str] = None) -> List[D
 
     results: List[ParsedExpenseItem] = []
     for clause in raw_clauses:
-        item = parse_single_clause(clause, tx_date)
+        item = parse_single_clause(clause, tx_date, user_settings["default_currency"])
         if item:
             results.append(item)
 
     # Fallback: if splitting failed to extract items, try whole string
     if not results:
-        single_item = parse_single_clause(clean_text, tx_date)
+        single_item = parse_single_clause(clean_text, tx_date, user_settings["default_currency"])
         if single_item:
             results.append(single_item)
 

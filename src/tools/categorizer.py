@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict, List, Optional
 from config.settings import settings
 from src.tools.registry import register_tool
+from src.storage.web_context import current_categorizer
 
 
 class Categorizer:
@@ -89,7 +90,7 @@ _categorizer_instance = Categorizer()
 
 def get_categorizer() -> Categorizer:
     """Get the active categorizer instance."""
-    return _categorizer_instance
+    return current_categorizer() or _categorizer_instance
 
 
 @register_tool(
@@ -102,4 +103,4 @@ def categorize(
     notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Categorize an expense item."""
-    return _categorizer_instance.categorize_item(merchant, description, notes)
+    return get_categorizer().categorize_item(merchant, description, notes)

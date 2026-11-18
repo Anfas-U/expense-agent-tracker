@@ -99,6 +99,7 @@ def append_row(
 
     entry = ExpenseEntry(
         amount=amount,
+        currency=local_db.get_user_settings()["default_currency"],
         merchant=merchant,
         category=final_category,
         date=entry_date,

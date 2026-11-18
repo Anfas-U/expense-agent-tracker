@@ -2,6 +2,11 @@
 
 from typing import Dict, Optional, Tuple
 from config.settings import settings
+from src.storage.local_db import get_local_db
+
+
+def _default_currency() -> str:
+    return get_local_db().get_user_settings()["default_currency"]
 
 
 # Default reference rates against INR (can be updated dynamically)
@@ -38,7 +43,7 @@ CURRENCY_SYMBOL_MAP: Dict[str, str] = {
 def detect_currency_code(raw_symbol_or_code: str) -> str:
     """Normalize raw currency symbol or text into ISO code."""
     clean = raw_symbol_or_code.lower().strip()
-    return CURRENCY_SYMBOL_MAP.get(clean, settings.default_currency)
+    return CURRENCY_SYMBOL_MAP.get(clean, _default_currency())
 
 
 def convert_to_base_currency(
@@ -51,16 +56,18 @@ def convert_to_base_currency(
     Returns:
         (converted_amount, base_currency, note)
     """
-    base = base_currency or settings.default_currency
+    base = base_currency or _default_currency()
     curr = currency_code.upper().strip()
 
     if curr == base:
         return amount, base, None
 
-    rate = DEFAULT_RATES_TO_INR.get(curr)
-    if rate:
+    currency_rate = DEFAULT_RATES_TO_INR.get(curr)
+    base_rate = DEFAULT_RATES_TO_INR.get(base)
+    if currency_rate is not None and base_rate is not None:
+        rate = currency_rate / base_rate
         converted = round(amount * rate, 2)
-        conversion_note = f"Original: {curr} {amount:,.2f} (rate {rate})"
+        conversion_note = f"Original: {curr} {amount:,.2f} (rate {rate:.4f})"
         return converted, base, conversion_note
 
     # Fallback if unknown currency

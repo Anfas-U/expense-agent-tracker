@@ -76,52 +76,74 @@ python tests/evaluation/run_eval.py
 ```
 Outputs field-level accuracy and latency benchmarks against the PRD targets.
 
-### 7. Run the Local Web Dashboard
-Install the updated requirements and set `WEB_USERNAME` plus a unique
-`WEB_PASSWORD` of at least 16 characters in `.env`, then start the web app:
+### 7. Run the Multi-User Web App
+The public web app requires a PostgreSQL database. For local testing, create a
+database with a managed provider such as Neon or Supabase, or use a local
+PostgreSQL server. Keep the connection URL private:
+
+```powershell
+Copy-Item .env.example .env
+# Set DATABASE_URL and COOKIE_SECURE=false in your private .env for local HTTP.
+```
+
+Install dependencies and run the web server:
 ```powershell
 .\.venv\Scripts\pip.exe install -r requirements.txt
 .\.venv\Scripts\python.exe -m src.interfaces.web
 ```
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser. The
-**Pocket Money** dashboard shows monthly totals, category spending, searchable
-and filterable recent expenses, and an expense assistant. Use **Export CSV** to
-download all saved expenses. Without an LLM API key in `.env`, chat uses the
-project's mock fallback. The web interface requires HTTP Basic Authentication:
-set `WEB_USERNAME` and a unique `WEB_PASSWORD` of at least 16 characters in
-`.env`; your browser will ask you to sign in. For public hosting, use a host
-that provides HTTPS. This is still a single-user app and does not separate data
-between multiple users.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000), create an account, and
+sign in. Each account has independent expenses, budgets, settings, recurring
+expenses, receipts, and sessions. Passwords are stored as scrypt hashes and
+sessions are random, revocable PostgreSQL records. Browser sessions last 30
+days. Records are not automatically expired or removed; they remain until the
+account owner deletes them or deletes their account. `DELETE /api/account`
+requires the account password and permanently removes that account's data.
+
+The app's hosted tables are created automatically. For a public deployment you
+need:
+
+- A managed PostgreSQL database (for example Neon or Supabase) and its private
+  `DATABASE_URL` connection string.
+- An application host that runs Python and supports HTTPS (for example Render,
+  Railway, or Fly.io). Set its start command to
+  `python -m uvicorn src.interfaces.web:app --host 0.0.0.0 --port $PORT`.
+- `COOKIE_SECURE=true` in production. Set `DATABASE_URL` as a secret in the
+  host's environment; do not put credentials in source control or build logs.
+- Optionally, `LLM_PROVIDER`, `LLM_API_KEY`, and `LLM_MODEL` for live assistant
+  responses. Without an API key the app uses the project's local mock agent.
+
+For the included Render blueprint, create a Neon PostgreSQL project first and
+copy its pooled connection URL from the Neon dashboard. In Render, create a
+new Blueprint from this GitHub repository; Render reads `render.yaml` and asks
+for `DATABASE_URL`. Paste the connection URL into Render's secret field (not
+into this repository). Deploy, wait for the service health check, then open its
+`onrender.com` URL and create the first account.
+
+`DATABASE_URL` and `COOKIE_SECURE` are the web app's required deployment
+settings. `DEFAULT_CURRENCY` and `DEFAULT_TIMEZONE` provide per-account initial
+defaults; users can override them through `/api/settings`. Receipt images are
+stored in the PostgreSQL database and served only through authenticated,
+owner-scoped routes. The host/database plan must retain backups and data for
+the period you promise users; this application does not implement a 90-day
+cleanup job.
+
+To move an existing single-user SQLite database, use the optional one-time
+migration command after creating the destination account:
+
+```powershell
+python -m src.storage.migrate_sqlite --username your-username --sqlite-path data/expense_tracker.db
+```
+
+It copies that SQLite file's expenses, budgets, learned merchant rules, and
+recurring expenses into the named PostgreSQL account. Receipt images at
+accessible local paths are copied when they are valid images no larger than
+5 MB; other receipt references are left as-is. The command skips records
+already present and leaves the source file untouched. Verify the destination
+before removing any local copies or backups. Configure the application host's
+rate limits for `/signup` and `/login` before opening registration to the
+public.
 
 On Windows, you can instead double-click `Open Pocket Money Dashboard.bat`.
 It starts the local server if needed and opens the dashboard in your browser.
 Keep the server's console window open while using the dashboard; closing it
 stops the local server.
-
-### 8. Host the Dashboard Publicly on Render
-
-The dashboard can be hosted at a public Render URL while remaining protected
-by its single-user username and password. Anyone who has the URL can reach the
-login prompt, but they cannot view expenses or use the dashboard without the
-credentials. This app is not a multi-user service; do not remove authentication
-or share the login for public access.
-
-1. Push this project to a **private GitHub repository**. Do not commit `.env`,
-   `.venv`, or the `data` directory; they are excluded by `.gitignore`.
-2. In Render, choose **New → Blueprint** and connect the repository. Render
-   reads the included `render.yaml` to configure the Python web service, login,
-   and persistent disk. This setup uses a paid service plan because SQLite
-   needs persistent storage.
-3. Review the generated `WEB_PASSWORD` in the Render service's **Environment**
-   settings and save it somewhere secure. The username is `owner`.
-4. Deploy the service. When deployment finishes, open its `onrender.com` URL
-   and sign in. Render provides HTTPS for the hosted URL.
-5. To use live AI chat, add `LLM_API_KEY` in the Render service's environment
-   settings (and `LLM_PROVIDER` if you use a provider other than Gemini), then
-   redeploy. Without an API key, chat uses the mock fallback.
-
-The hosted app stores its SQLite database, CSV data, and receipts on the
-attached disk mounted at `/var/data`. Your existing local `data` directory is
-not uploaded, so the hosted database starts empty. Back up your local files
-before deployment. The Render disk preserves data through restarts and
-deployments, but keep separate backups for important expense records.
