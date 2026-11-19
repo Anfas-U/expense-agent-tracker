@@ -237,6 +237,17 @@ def test_dashboard_and_private_routes_require_an_account(database, browser):
     assert browser.post("/api/chat", json={"message": "spent 20 on tea"}).status_code == 401
 
 
+def test_dashboard_currency_selector_includes_rupees_by_default(database, browser):
+    create_account(browser, "alice")
+
+    dashboard = browser.get("/").text
+    settings_response = browser.get("/api/settings")
+
+    assert 'id="currency-select"' in dashboard
+    assert '<option value="INR">₹ INR</option>' in dashboard
+    assert settings_response.json()["settings"]["default_currency"] == "INR"
+
+
 def test_expenses_budgets_settings_recurring_and_receipts_are_account_scoped(database):
     alice = TestClient(web.app)
     bob = TestClient(web.app)
