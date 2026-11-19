@@ -52,13 +52,37 @@ _EMAIL_RE = re.compile(
 )
 
 
+def _origin_matches_request(request: Request, origin: str) -> bool:
+    forwarded_scheme = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+    scheme = forwarded_scheme if forwarded_scheme in {"http", "https"} else request.url.scheme
+    try:
+        origin_url = url_parse.urlsplit(origin)
+        host_url = url_parse.urlsplit(f"{scheme}://{request.headers.get('host', request.url.netloc)}")
+        origin_port = origin_url.port or (443 if origin_url.scheme == "https" else 80)
+        host_port = host_url.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return False
+    return (
+        origin_url.scheme == scheme
+        and origin_url.hostname is not None
+        and origin_url.hostname.lower() == (host_url.hostname or "").lower()
+        and origin_port == host_port
+        and not origin_url.username
+        and not origin_url.password
+        and not host_url.username
+        and not host_url.password
+        and not origin_url.path
+        and not origin_url.query
+        and not origin_url.fragment
+    )
+
+
 @app.middleware("http")
 async def harden_responses(request: Request, call_next):
     cross_origin = False
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         origin = request.headers.get("origin")
-        expected_origin = f"{request.url.scheme}://{request.url.netloc}"
-        cross_origin = bool(origin and origin.rstrip("/") != expected_origin)
+        cross_origin = bool(origin and not _origin_matches_request(request, origin))
         cross_origin = cross_origin or (
             not origin and request.headers.get("sec-fetch-site") == "cross-site"
         )

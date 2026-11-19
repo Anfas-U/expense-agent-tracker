@@ -395,8 +395,13 @@ def test_signup_login_and_logout_issue_and_revoke_account_session(database, brow
 
     monkeypatch.setattr(web.settings, "database_url", "configured")
     monkeypatch.setattr(web, "get_database", lambda: database)
-    logout = browser.post("/logout", follow_redirects=False)
+    logout = browser.post(
+        "/logout",
+        follow_redirects=False,
+        headers={"Origin": "https://testserver", "X-Forwarded-Proto": "https"},
+    )
     assert logout.status_code == 303
+    assert logout.headers["location"] == "/login"
     assert database.get_session(cookie) is None
     assert browser.get("/", follow_redirects=False).status_code == 303
 
