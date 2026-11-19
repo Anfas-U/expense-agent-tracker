@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#14213D">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Pocket Money | Overview</title>
   <style>
     :root {
@@ -39,16 +40,10 @@
     }
     .brand { display: flex; align-items: center; gap: 12px; padding: 0 10px 38px; }
     .brand-mark {
-      display: grid;
+      display: block;
       width: 40px;
       height: 40px;
-      place-items: center;
-      border-radius: 13px;
-      background: linear-gradient(145deg, #45B8A7, #2A9D8F);
-      box-shadow: 0 7px 15px rgb(7 13 25 / 30%);
-      color: #14213D;
-      font-size: 19px;
-      font-weight: 750;
+      flex: 0 0 auto;
     }
     .brand-name { color: #f6f3eb; font-size: 15px; font-weight: 750; letter-spacing: -.03em; }
     .brand-caption { margin-top: 3px; color: #aab1bf; font-size: 11px; }
@@ -247,7 +242,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">₹</div>
+        <img class="brand-mark" src="/brand.svg" alt="">
         <div><div class="brand-name">Pocket Money</div><div class="brand-caption">Spend with intention</div></div>
       </div>
       <div class="nav-label">Workspace</div>

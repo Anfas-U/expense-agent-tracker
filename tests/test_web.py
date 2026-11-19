@@ -280,6 +280,24 @@ def test_dashboard_and_private_routes_require_an_account(database, browser):
     assert browser.post("/api/chat", json={"message": "spent 20 on tea"}).status_code == 401
 
 
+def test_brand_logo_is_available_to_login_dashboard_and_browser_tab(database, browser):
+    create_account(browser, "alice")
+
+    login_page = browser.get("/login").text
+    dashboard = browser.get("/").text
+    logo = browser.get("/brand.svg")
+    favicon = browser.get("/favicon.svg")
+
+    assert 'href="/favicon.svg"' in login_page
+    assert 'src="/brand.svg"' in login_page
+    assert 'href="/favicon.svg"' in dashboard
+    assert 'src="/brand.svg"' in dashboard
+    assert logo.status_code == favicon.status_code == 200
+    assert logo.headers["content-type"] == "image/svg+xml"
+    assert logo.content == favicon.content
+    assert b'<svg xmlns="http://www.w3.org/2000/svg"' in logo.content
+
+
 def test_dashboard_currency_selector_includes_rupees_by_default(database, browser):
     create_account(browser, "alice")
 

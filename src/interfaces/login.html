@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#14213D">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Sign in | Pocket Money</title>
   <style>
     :root {
@@ -16,7 +17,7 @@
     body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 24px; }
     .card { width: min(100%, 390px); border: 1px solid #E4E7EC; border-radius: 18px; background: #fff; padding: 30px; box-shadow: 0 12px 36px rgb(20 33 61 / 8%); }
     .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 27px; }
-    .mark { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: linear-gradient(145deg, #45B8A7, #2A9D8F); color: #14213D; font-size: 19px; font-weight: 750; }
+    .brand-mark { display: block; width: 44px; height: 44px; flex: 0 0 auto; }
     .brand-name { font-size: 16px; font-weight: 750; }
     .caption { margin-top: 3px; color: #667085; font-size: 12px; }
     h1 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
@@ -35,7 +36,7 @@
 <body>
   <main class="card">
     <div class="brand">
-      <div class="mark" aria-hidden="true">₹</div>
+      <img class="brand-mark" src="/brand.svg" alt="">
       <div><div class="brand-name">Pocket Money</div><div class="caption">Spend with intention</div></div>
     </div>
     <h1 id="heading">Welcome back</h1>

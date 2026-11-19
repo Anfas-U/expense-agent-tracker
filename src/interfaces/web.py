@@ -30,6 +30,7 @@ app = FastAPI(title="Pocket Money", docs_url=None, redoc_url=None)
 logger = logging.getLogger(__name__)
 _WEB_PAGE = Path(__file__).with_name("web.html")
 _LOGIN_PAGE = Path(__file__).with_name("login.html")
+_BRAND_IMAGE = Path(__file__).with_name("brand.svg")
 _SESSION_COOKIE = "pocket_money_session"
 _SESSION_MAX_AGE = 30 * 24 * 60 * 60
 _MAX_BACKUP_RECEIPT_BYTES = 25 * 1024 * 1024
@@ -250,6 +251,13 @@ def _scoped_database(database: PostgresDatabase, user: dict[str, str]) -> UserDa
 def login_page() -> FileResponse:
     """Serve the sign-in and account creation form."""
     return FileResponse(_LOGIN_PAGE, media_type="text/html")
+
+
+@app.get("/brand.svg", include_in_schema=False)
+@app.get("/favicon.svg", include_in_schema=False)
+def brand_image() -> FileResponse:
+    """Serve the public brand mark for the UI and browser tab."""
+    return FileResponse(_BRAND_IMAGE, media_type="image/svg+xml")
 
 
 @app.post("/signup", include_in_schema=False)
