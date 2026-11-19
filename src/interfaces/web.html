@@ -161,6 +161,12 @@
     .breakdown-amount { color: var(--black); font-weight: 700; }
     .track { height: 6px; overflow: hidden; border-radius: 10px; background: #f0f2f7; }
     .bar { width: var(--bar-width, 0%); height: 100%; border-radius: inherit; background: var(--bar-color, var(--blue)); }
+    .category-totals { display: grid; }
+    .category-total-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f2f6; }
+    .category-total-row:last-child { border-bottom: 0; }
+    .category-total-name { color: var(--black); font-size: 12px; font-weight: 650; }
+    .category-total-count { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .category-total-amount { color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
     .chat-panel { padding-bottom: 17px; }
     .assistant-tag { padding: 5px 8px; border-radius: 20px; background: #E8F5F2; color: #176F65; font-size: 10px; font-weight: 700; }
     .chat-log { display: flex; min-height: 140px; max-height: 300px; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px 2px 12px; }
@@ -304,6 +310,14 @@
             <div class="breakdown-list" id="breakdown"></div>
             <p id="breakdown-empty" class="empty" hidden>No category spending yet this month.</p>
           </section>
+          <section class="panel" id="lifetime-totals">
+            <div class="panel-heading">
+              <h2 class="panel-title">All-time totals by category</h2>
+              <span class="panel-meta">All recorded expenses</span>
+            </div>
+            <div class="category-totals" id="category-totals"></div>
+            <p id="category-totals-empty" class="empty" hidden>No expenses recorded yet.</p>
+          </section>
         </div>
 
         <div class="right-column">
@@ -431,24 +445,63 @@
       });
     }
 
+    function renderCategoryTotals(totals) {
+      const container = document.getElementById("category-totals");
+      const empty = document.getElementById("category-totals-empty");
+      container.replaceChildren();
+      const categories = totals || [];
+      empty.hidden = categories.length > 0;
+      for (const category of categories) {
+        const row = document.createElement("div");
+        row.className = "category-total-row";
+        const details = document.createElement("div");
+        const name = document.createElement("span");
+        name.className = "category-total-name";
+        name.textContent = category.category;
+        const count = document.createElement("span");
+        count.className = "category-total-count";
+        count.textContent = `${category.expense_count} ${category.expense_count === 1 ? "expense" : "expenses"}`;
+        details.append(name, count);
+        const amount = document.createElement("span");
+        amount.className = "category-total-amount";
+        amount.textContent = money(category.total_amount);
+        row.append(details, amount);
+        container.appendChild(row);
+      }
+    }
+
     async function refreshDashboard() {
       const status = document.getElementById("load-status");
       status.textContent = "";
       status.className = "status";
       try {
-        const [summaryResponse, expensesResponse, settingsResponse] = await Promise.all([
-          fetch("/api/summary"), fetch("/api/expenses"), fetch("/api/settings")
+        const [summaryResponse, expensesResponse, settingsResponse, categoryTotalsResponse] = await Promise.all([
+          fetch("/api/summary"),
+          fetch("/api/expenses"),
+          fetch("/api/settings"),
+          fetch("/api/expenses/category-totals")
         ]);
-        if (summaryResponse.status === 401 || expensesResponse.status === 401 || settingsResponse.status === 401) {
+        if (
+          summaryResponse.status === 401 ||
+          expensesResponse.status === 401 ||
+          settingsResponse.status === 401 ||
+          categoryTotalsResponse.status === 401
+        ) {
           window.location.assign("/login");
           return;
         }
-        if (!summaryResponse.ok || !expensesResponse.ok || !settingsResponse.ok) {
+        if (
+          !summaryResponse.ok ||
+          !expensesResponse.ok ||
+          !settingsResponse.ok ||
+          !categoryTotalsResponse.ok
+        ) {
           throw new Error("Could not load dashboard data. Please refresh and try again.");
         }
         const summary = await summaryResponse.json();
         const data = await expensesResponse.json();
         const userSettings = await settingsResponse.json();
+        const categoryTotals = await categoryTotalsResponse.json();
         const savedCurrency = userSettings.settings.default_currency || "INR";
         const currencySelect = document.getElementById("currency-select");
         if (![...currencySelect.options].some(option => option.value === savedCurrency)) {
@@ -477,6 +530,7 @@
         categoryFilter.value = categories.includes(currentCategory) ? currentCategory : "";
         renderExpenses();
         renderBreakdown(summary.category_breakdown);
+        renderCategoryTotals(categoryTotals.category_totals);
 
         const alerts = summary.budget_alerts || [];
         if (alerts.length) {

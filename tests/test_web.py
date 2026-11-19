@@ -34,6 +34,24 @@ class MemoryUserDatabase:
         values = sorted(self.expenses.values(), key=lambda item: (item.date, item.created_at), reverse=True)
         return values if limit is None else values[:limit]
 
+    def get_expense_category_totals(self):
+        totals = {}
+        for expense in self.expenses.values():
+            category = expense.category.strip()
+            key = category.casefold()
+            if not key:
+                continue
+            total = totals.setdefault(
+                key,
+                {"category": category, "expense_count": 0, "total_amount": 0.0},
+            )
+            total["expense_count"] += 1
+            total["total_amount"] += expense.amount
+        return sorted(
+            totals.values(),
+            key=lambda total: (-total["total_amount"], total["category"].casefold()),
+        )
+
     def delete_expense(self, expense_id):
         return self.expenses.pop(expense_id, None) is not None
 
@@ -231,7 +249,13 @@ def test_dashboard_and_private_routes_require_an_account(database, browser):
     assert browser.get("/signup").status_code == 200
     assert browser.get("/", follow_redirects=False).headers["location"] == "/login"
 
-    for path in ("/api/expenses", "/api/expenses/export", "/api/summary", "/api/settings"):
+    for path in (
+        "/api/expenses",
+        "/api/expenses/export",
+        "/api/expenses/category-totals",
+        "/api/summary",
+        "/api/settings",
+    ):
         assert browser.get(path).status_code == 401
 
     assert browser.post("/api/chat", json={"message": "spent 20 on tea"}).status_code == 401
@@ -246,6 +270,39 @@ def test_dashboard_currency_selector_includes_rupees_by_default(database, browse
     assert 'id="currency-select"' in dashboard
     assert '<option value="INR">₹ INR</option>' in dashboard
     assert settings_response.json()["settings"]["default_currency"] == "INR"
+
+
+def test_all_time_category_totals_group_expenses_and_stay_account_scoped(database):
+    alice = TestClient(web.app)
+    bob = TestClient(web.app)
+    create_account(alice, "alice")
+    create_account(bob, "bob")
+    alice_store = database.user_database("user-1")
+    bob_store = database.user_database("user-2")
+
+    alice_store.insert_expense(
+        ExpenseEntry(id="fuel-one", amount=500, merchant="Petrol station", category="Fuel")
+    )
+    alice_store.insert_expense(
+        ExpenseEntry(id="fuel-two", amount=250, merchant="Fuel pump", category="fuel")
+    )
+    alice_store.insert_expense(
+        ExpenseEntry(id="food-one", amount=120, merchant="Cafe", category="Dining")
+    )
+    bob_store.insert_expense(
+        ExpenseEntry(id="bob-fuel", amount=2000, merchant="Other station", category="Fuel")
+    )
+
+    alice_totals = alice.get("/api/expenses/category-totals").json()["category_totals"]
+    bob_totals = bob.get("/api/expenses/category-totals").json()["category_totals"]
+
+    assert alice_totals == [
+        {"category": "Fuel", "expense_count": 2, "total_amount": 750.0},
+        {"category": "Dining", "expense_count": 1, "total_amount": 120.0},
+    ]
+    assert bob_totals == [
+        {"category": "Fuel", "expense_count": 1, "total_amount": 2000.0}
+    ]
 
 
 def test_expenses_budgets_settings_recurring_and_receipts_are_account_scoped(database):

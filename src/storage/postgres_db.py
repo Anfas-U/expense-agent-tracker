@@ -303,6 +303,30 @@ class UserDatabase:
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
+    def get_expense_category_totals(self) -> List[Dict[str, Any]]:
+        """Return all-time expense totals grouped by this user's category."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT MIN(BTRIM(category)) AS category,
+                       COUNT(*) AS expense_count,
+                       SUM(amount) AS total_amount
+                FROM expenses
+                WHERE user_id = %s AND BTRIM(category) <> ''
+                GROUP BY LOWER(BTRIM(category))
+                ORDER BY SUM(amount) DESC, LOWER(BTRIM(category)) ASC
+                """,
+                (self.user_id,),
+            ).fetchall()
+        return [
+            {
+                "category": row["category"],
+                "expense_count": int(row["expense_count"]),
+                "total_amount": float(row["total_amount"]),
+            }
+            for row in rows
+        ]
+
     def save_merchant_rule(self, merchant: str, category: str) -> None:
         with self._connect() as conn:
             conn.execute(

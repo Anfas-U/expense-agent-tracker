@@ -313,6 +313,17 @@ def list_expenses(
     return {"expenses": [expense.model_dump(mode="json") for expense in expenses]}
 
 
+@app.get("/api/expenses/category-totals")
+def expense_category_totals(
+    user: dict[str, str] = Depends(get_current_user),
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return all-time category totals for the authenticated user."""
+    return {
+        "category_totals": _scoped_database(database, user).get_expense_category_totals()
+    }
+
+
 @app.delete("/api/expenses/{expense_id}", status_code=204)
 def delete_expense(
     expense_id: str,

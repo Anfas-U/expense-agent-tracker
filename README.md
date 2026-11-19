@@ -24,7 +24,7 @@ Built according to [PRD.md](file:///c:/Users/anfas/Desktop/expense%20agent%20tra
 - **Recurring Expenses Scheduler**: Monthly automated logging for rent, subscriptions, and recurring bills.
 - **Dual Storage**: Seamless zero-configuration local CSV/SQLite storage out-of-the-box, with instant Google Sheets synchronization when credentials are provided.
 - **Multiple Channels**: Interactive developer CLI and full Telegram Bot integration.
-- **Pocket Money Dashboard**: Branded local dashboard with monthly insights, category filters, merchant search, chat, and CSV export.
+- **Pocket Money Dashboard**: Branded dashboard with monthly insights, all-time spending totals by category, category filters, merchant search, chat, and CSV export.
 
 ---
 
