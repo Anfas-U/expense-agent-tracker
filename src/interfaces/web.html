@@ -197,6 +197,8 @@
     .edit-dialog-actions button[type="submit"] { border-color: #176F65; background: #176F65; color: #fff; }
     .edit-dialog-actions button:disabled { cursor: wait; opacity: .65; }
     .chat-panel { padding-bottom: 17px; }
+    .quick-entry-panel { margin: 18px 0; border-color: #C6E5DF; background: linear-gradient(110deg, #fff 60%, #F0F8F6); }
+    .quick-entry-panel .chat-log { min-height: 68px; max-height: 220px; }
     .assistant-tag { padding: 5px 8px; border-radius: 20px; background: #E8F5F2; color: #176F65; font-size: 10px; font-weight: 700; }
     .chat-log { display: flex; min-height: 140px; max-height: 300px; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px 2px 12px; }
     .bubble { max-width: 92%; align-self: flex-start; border: 1px solid #edf0f5; border-radius: 12px 12px 12px 4px; background: #f7f8fb; padding: 10px 12px; color: #576176; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -291,6 +293,22 @@
           <p class="subheading">A clearer view of your spending, one day at a time.</p>
         </div>
         <div class="date-label" id="today-label"></div>
+      </section>
+
+      <section class="panel chat-panel quick-entry-panel" id="assistant">
+        <div class="panel-heading">
+          <h2 class="panel-title">Expense assistant</h2>
+          <span class="assistant-tag">SMART CHAT</span>
+        </div>
+        <div id="chat-log" class="chat-log" aria-live="polite">
+          <div class="bubble">Hi! Tell me about an expense or ask me how much you’ve spent. For example: “spent 250 on lunch”.</div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <input class="chat-input" id="message" name="message" placeholder="e.g. spent 250 on lunch" maxlength="2000" required autocomplete="off" aria-label="Message to expense assistant">
+          <button class="send-button" id="send" type="submit" aria-label="Send message" title="Send message">↑</button>
+        </form>
+        <p id="chat-status" class="status" role="status"></p>
+        <p class="hint">AI-powered replies require an LLM API key configured by the site owner.</p>
       </section>
 
       <section class="stats" aria-label="Monthly summary">
@@ -397,21 +415,6 @@
             <p class="hint">Reminders appear here when you open the dashboard; no email or text is sent.</p>
             <div class="recurring-list" id="recurring-list"></div>
             <p class="empty" id="recurring-empty" hidden>No recurring bills added yet.</p>
-          </section>
-          <section class="panel chat-panel" id="assistant">
-            <div class="panel-heading">
-              <h2 class="panel-title">Expense assistant</h2>
-              <span class="assistant-tag">SMART CHAT</span>
-            </div>
-            <div id="chat-log" class="chat-log" aria-live="polite">
-              <div class="bubble">Hi! Tell me about an expense or ask me how much you’ve spent. For example: “spent 250 on lunch”.</div>
-            </div>
-            <form id="chat-form" class="chat-form">
-              <input class="chat-input" id="message" name="message" placeholder="Type an expense or question..." maxlength="2000" required autocomplete="off" aria-label="Message to expense assistant">
-              <button class="send-button" id="send" type="submit" aria-label="Send message" title="Send message">↑</button>
-            </form>
-            <p id="chat-status" class="status" role="status"></p>
-            <p class="hint">AI-powered replies require an LLM API key configured by the site owner.</p>
           </section>
         </div>
       </div>

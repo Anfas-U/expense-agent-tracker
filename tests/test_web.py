@@ -317,6 +317,7 @@ def test_dashboard_has_budget_bill_edit_and_backup_controls(database, browser):
     assert 'id="recurring-form"' in dashboard
     assert 'id="edit-expense-dialog"' in dashboard
     assert 'id="backup-button"' in dashboard
+    assert dashboard.index('id="assistant"') < dashboard.index('aria-label="Monthly summary"')
 
 
 def test_all_time_category_totals_group_expenses_and_stay_account_scoped(database):
