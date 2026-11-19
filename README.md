@@ -143,7 +143,9 @@ accounts still work, but forgot-password and email verification are unavailable.
 For the included Render blueprint, create a Neon PostgreSQL project first and
 copy its pooled connection URL from the Neon dashboard. In Render, create a
 new Blueprint from this GitHub repository; Render reads `render.yaml` and asks
-for `DATABASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_BASE_URL`.
+for `DATABASE_URL`, `RESEND_API_KEY`, and `EMAIL_FROM`. The blueprint sets
+`PUBLIC_BASE_URL` to the Pocket Money Render URL; change it if you use a custom
+domain.
 Enter secrets in Render's environment settings (not into this repository).
 Deploy, wait for the service health check, then open its `onrender.com` URL and
 create the first account.
