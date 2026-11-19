@@ -3,6 +3,8 @@
 import base64
 import datetime as dt
 import io
+import json
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
@@ -152,19 +154,157 @@ class MemoryDatabase:
         self.users = {}
         self.stores = {}
         self.sessions = {}
+        self.recovery_emails = {}
+        self.email_verification_tokens = {}
+        self.password_reset_tokens = {}
+        self.sent_emails = []
         self.next_user = 1
 
     def ensure_schema(self):
         pass
 
-    def create_user(self, username, password_hash):
+    def create_user(self, username, password_hash, email):
         if self.get_user_by_username(username):
-            raise ValueError("An account with that username already exists.")
+            raise ValueError("An account with that username or email already exists.")
+        if any(
+            (record.get("email") or "").lower() == email.lower()
+            or record.get("pending_email", "").lower() == email.lower()
+            for record in self.recovery_emails.values()
+        ):
+            raise ValueError("An account with that username or email already exists.")
         user = {"id": f"user-{self.next_user}", "username": username, "password_hash": password_hash}
         self.next_user += 1
         self.users[user["id"]] = user
         self.stores[user["id"]] = MemoryUserDatabase()
+        self.recovery_emails[user["id"]] = {
+            "email": None,
+            "verified": False,
+            "pending_email": email,
+        }
         return {"id": user["id"], "username": username}
+
+    def get_user_by_verified_email(self, email):
+        record = next(
+            (
+                self.recovery_emails[user_id]
+                for user_id in self.users
+                if self.recovery_emails[user_id]["verified"]
+                and self.recovery_emails[user_id]["email"].lower() == email.lower()
+            ),
+            None,
+        )
+        if not record:
+            return None
+        user = next(
+            user for user_id, user in self.users.items()
+            if self.recovery_emails[user_id] is record
+        )
+        return {"id": user["id"], "username": user["username"]}
+
+    def set_pending_recovery_email(self, user_id, email):
+        record = self.recovery_emails[user_id]
+        if record["verified"] and record["email"].lower() == email.lower():
+            raise ValueError("This recovery email is already verified.")
+        if any(
+            other_id != user_id
+            and (
+                (other.get("email") or "").lower() == email.lower()
+                or other.get("pending_email", "").lower() == email.lower()
+            )
+            for other_id, other in self.recovery_emails.items()
+        ):
+            raise ValueError("That email address is already associated with an account.")
+        record["pending_email"] = email
+        for token in self.email_verification_tokens.values():
+            if token["user_id"] == user_id:
+                token["used"] = True
+
+    def get_recovery_email_status(self, user_id):
+        return dict(self.recovery_emails[user_id])
+
+    def create_email_verification_token(self, user_id, email, token_hash, expires_at):
+        now = dt.datetime.now(dt.timezone.utc)
+        recent = [
+            token for token in self.email_verification_tokens.values()
+            if token["user_id"] == user_id
+            and token["created_at"] > now - dt.timedelta(hours=1)
+        ]
+        if len(recent) >= 3:
+            return False
+        record = self.recovery_emails[user_id]
+        if record["pending_email"] != email:
+            return False
+        for token in self.email_verification_tokens.values():
+            if token["user_id"] == user_id:
+                token["used"] = True
+        self.email_verification_tokens[token_hash] = {
+            "user_id": user_id,
+            "email": email,
+            "expires_at": expires_at,
+            "created_at": now,
+            "used": False,
+        }
+        return True
+
+    def verify_email_token(self, token_hash):
+        token = self.email_verification_tokens.get(token_hash)
+        now = dt.datetime.now(dt.timezone.utc)
+        if not token or token["used"] or token["expires_at"] <= now:
+            return False
+        record = self.recovery_emails[token["user_id"]]
+        if record["pending_email"] != token["email"]:
+            token["used"] = True
+            return False
+        record.update(email=token["email"], verified=True, pending_email=None)
+        for other in self.email_verification_tokens.values():
+            if other["user_id"] == token["user_id"]:
+                other["used"] = True
+        for reset_token in self.password_reset_tokens.values():
+            if reset_token["user_id"] == token["user_id"]:
+                reset_token["used"] = True
+        return True
+
+    def create_password_reset_token(self, user_id, token_hash, expires_at):
+        now = dt.datetime.now(dt.timezone.utc)
+        recent = [
+            token for token in self.password_reset_tokens.values()
+            if token["user_id"] == user_id
+            and token["created_at"] > now - dt.timedelta(hours=1)
+        ]
+        if len(recent) >= 3:
+            return False
+        for token in self.password_reset_tokens.values():
+            if token["user_id"] == user_id:
+                token["used"] = True
+        self.password_reset_tokens[token_hash] = {
+            "user_id": user_id,
+            "expires_at": expires_at,
+            "created_at": now,
+            "used": False,
+        }
+        return True
+
+    def has_valid_password_reset_token(self, token_hash):
+        token = self.password_reset_tokens.get(token_hash)
+        return bool(
+            token
+            and not token["used"]
+            and token["expires_at"] > dt.datetime.now(dt.timezone.utc)
+        )
+
+    def consume_password_reset_token(self, token_hash, password_hash):
+        if not self.has_valid_password_reset_token(token_hash):
+            return False
+        user_id = self.password_reset_tokens[token_hash]["user_id"]
+        self.users[user_id]["password_hash"] = password_hash
+        for token in self.password_reset_tokens.values():
+            if token["user_id"] == user_id:
+                token["used"] = True
+        self.sessions = {
+            token: session for token, session in self.sessions.items()
+            if session[0] != user_id
+        }
+        return True
 
     def get_user_by_username(self, username):
         return next(
@@ -191,6 +331,7 @@ class MemoryDatabase:
     def delete_account(self, user_id):
         self.users.pop(user_id, None)
         self.stores.pop(user_id, None)
+        self.recovery_emails.pop(user_id, None)
         self.sessions = {
             token: session for token, session in self.sessions.items() if session[0] != user_id
         }
@@ -203,6 +344,16 @@ class MemoryDatabase:
 def database(monkeypatch):
     database = MemoryDatabase()
     monkeypatch.setattr(web.settings, "cookie_secure", False)
+    monkeypatch.setattr(web.settings, "resend_api_key", "test-api-key")
+    monkeypatch.setattr(web.settings, "email_from", "Pocket Money <support@example.com>")
+    monkeypatch.setattr(web.settings, "public_base_url", "https://pocket-money.example.com")
+    monkeypatch.setattr(
+        web,
+        "_send_resend_email",
+        lambda recipient, subject, text: database.sent_emails.append(
+            {"to": recipient, "subject": subject, "text": text}
+        ),
+    )
     web.app.dependency_overrides[web.get_database] = lambda: database
     yield database
     web.app.dependency_overrides.clear()
@@ -214,9 +365,17 @@ def browser():
 
 
 def create_account(browser, username):
-    response = browser.post("/signup", json={"username": username, "password": PASSWORD})
+    response = browser.post(
+        "/signup",
+        json={"username": username, "password": PASSWORD, "email": f"{username}@example.com"},
+    )
     assert response.status_code == 200
     return response
+
+
+def token_from_email(email):
+    link = next(line for line in email["text"].splitlines() if line.startswith("https://"))
+    return parse_qs(urlparse(link).fragment)["token"][0]
 
 
 def test_signup_login_and_logout_issue_and_revoke_account_session(database, browser, monkeypatch):
@@ -250,21 +409,38 @@ def test_duplicate_accounts_and_invalid_password_are_rejected(database, browser)
     create_account(browser, "alice")
 
     duplicate = TestClient(web.app).post(
-        "/signup", json={"username": "ALICE", "password": PASSWORD}
+        "/signup",
+        json={
+            "username": "ALICE",
+            "password": PASSWORD,
+            "email": "other@example.com",
+        },
     )
     invalid = TestClient(web.app).post(
         "/login", json={"username": "alice", "password": "not-the-right-password"}
+    )
+    invalid_email = TestClient(web.app).post(
+        "/signup",
+        json={"username": "charlie", "password": PASSWORD, "email": "not-an-email"},
     )
 
     assert duplicate.status_code == 409
     assert invalid.status_code == 401
     assert invalid.json() == {"detail": "Incorrect username or password."}
+    assert invalid_email.status_code == 422
 
 
 def test_dashboard_and_private_routes_require_an_account(database, browser):
-    assert browser.get("/login").status_code == 200
-    assert 'id="login-form"' in browser.get("/login").text
-    assert browser.get("/signup").status_code == 200
+    login_page = browser.get("/login")
+    signup_page = browser.get("/signup")
+    assert login_page.status_code == 200
+    assert 'id="login-form"' in login_page.text
+    assert 'href="/forgot-password"' in login_page.text
+    assert signup_page.status_code == 200
+    assert 'id="email" name="email" type="email"' in signup_page.text
+    assert browser.get("/forgot-password").status_code == 200
+    assert browser.get("/reset-password").status_code == 200
+    assert browser.get("/verify-email").status_code == 200
     assert browser.get("/", follow_redirects=False).headers["location"] == "/login"
 
     for path in (
@@ -272,12 +448,161 @@ def test_dashboard_and_private_routes_require_an_account(database, browser):
         "/api/expenses/export",
         "/api/expenses/category-totals",
         "/api/account/backup",
+        "/api/account/recovery-email",
         "/api/summary",
         "/api/settings",
     ):
         assert browser.get(path).status_code == 401
 
     assert browser.post("/api/chat", json={"message": "spent 20 on tea"}).status_code == 401
+
+
+def test_signup_and_password_reset_use_verified_email_and_revoke_sessions(database, browser):
+    alice = TestClient(web.app)
+    bob = TestClient(web.app)
+    create_account(alice, "alice")
+    create_account(bob, "bob")
+
+    alice_email = database.sent_emails[0]["to"]
+    assert alice_email == "alice@example.com"
+    verification_token = token_from_email(database.sent_emails[0])
+    assert alice.post("/verify-email", json={"token": verification_token}).status_code == 200
+    assert alice.post("/verify-email", json={"token": verification_token}).status_code == 400
+    assert alice.get("/api/account/recovery-email").json()["verified"] is True
+
+    unknown_response = alice.post(
+        "/forgot-password", json={"email": "unknown@example.com"}
+    )
+    unverified_response = alice.post(
+        "/forgot-password", json={"email": "bob@example.com"}
+    )
+    assert unknown_response.json() == unverified_response.json()
+    assert len(database.sent_emails) == 2
+
+    requested = alice.post("/forgot-password", json={"email": alice_email})
+    assert requested.status_code == 200
+    reset_token = token_from_email(database.sent_emails[-1])
+    reset = alice.post(
+        "/reset-password",
+        json={"token": reset_token, "password": "a-new-password-that-is-long-enough"},
+    )
+
+    assert reset.status_code == 200
+    assert alice.get("/api/settings").status_code == 401
+    assert alice.post("/reset-password", json={
+        "token": reset_token,
+        "password": "another-new-password-that-is-long-enough",
+    }).status_code == 400
+    assert alice.post("/login", json={"username": "alice", "password": PASSWORD}).status_code == 401
+    assert alice.post(
+        "/login",
+        json={"username": "alice", "password": "a-new-password-that-is-long-enough"},
+    ).status_code == 200
+    assert bob.post("/login", json={"username": "bob", "password": PASSWORD}).status_code == 200
+
+
+def test_password_reset_email_requests_are_rate_limited(database, browser):
+    create_account(browser, "alice")
+    verification_token = token_from_email(database.sent_emails[0])
+    browser.post("/verify-email", json={"token": verification_token})
+    sent_before = len(database.sent_emails)
+
+    responses = [
+        browser.post("/forgot-password", json={"email": "alice@example.com"})
+        for _ in range(4)
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    assert len(database.sent_emails) == sent_before + 3
+
+
+def test_resend_delivery_uses_configured_sender_and_email_payload(monkeypatch):
+    sent = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        sent["url"] = request.full_url
+        sent["authorization"] = request.get_header("Authorization")
+        sent["payload"] = json.loads(request.data)
+        sent["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(web.settings, "resend_api_key", "test-api-key")
+    monkeypatch.setattr(web.settings, "email_from", "Pocket Money <support@example.com>")
+    monkeypatch.setattr(web.url_request, "urlopen", fake_urlopen)
+
+    web._send_resend_email("alice@example.com", "Reset password", "Use this link.")
+
+    assert sent["url"] == "https://api.resend.com/emails"
+    assert sent["authorization"] == "Bearer test-api-key"
+    assert sent["payload"]["from"] == "Pocket Money <support@example.com>"
+    assert sent["payload"]["to"] == ["alice@example.com"]
+    assert sent["payload"]["text"] == "Use this link."
+    assert sent["timeout"] == 10
+
+
+def test_signed_in_user_can_verify_recovery_email_and_email_is_unique(database, browser):
+    alice = TestClient(web.app)
+    bob = TestClient(web.app)
+    create_account(alice, "alice")
+    create_account(bob, "bob")
+
+    updated = alice.put(
+        "/api/account/recovery-email",
+        json={"email": "recovery@example.com", "password": PASSWORD},
+    )
+    assert updated.status_code == 200
+    token = token_from_email(database.sent_emails[-1])
+    assert alice.post("/verify-email", json={"token": token}).status_code == 200
+    assert alice.get("/api/account/recovery-email").json() == {
+        "email": "recovery@example.com",
+        "verified": True,
+        "pending_email": None,
+        "email_configured": True,
+    }
+
+    duplicate = bob.put(
+        "/api/account/recovery-email",
+        json={"email": "recovery@example.com", "password": PASSWORD},
+    )
+    assert duplicate.status_code == 409
+    wrong_password = bob.put(
+        "/api/account/recovery-email",
+        json={"email": "other@example.com", "password": "not-the-right-password"},
+    )
+    assert wrong_password.status_code == 401
+
+
+def test_password_reset_rejects_expired_tokens_and_unconfigured_email(database, browser, monkeypatch):
+    create_account(browser, "alice")
+    verification_token = token_from_email(database.sent_emails[0])
+    browser.post("/verify-email", json={"token": verification_token})
+    browser.post("/forgot-password", json={"email": "alice@example.com"})
+    reset_token = token_from_email(database.sent_emails[-1])
+    digest = web._token_digest(reset_token)
+    database.password_reset_tokens[digest]["expires_at"] = dt.datetime.now(
+        dt.timezone.utc
+    ) - dt.timedelta(seconds=1)
+
+    expired = browser.post(
+        "/reset-password",
+        json={"token": reset_token, "password": "a-new-password-that-is-long-enough"},
+    )
+    assert expired.status_code == 400
+
+    monkeypatch.setattr(web.settings, "resend_api_key", "")
+    unconfigured = browser.post(
+        "/forgot-password", json={"email": "alice@example.com"}
+    )
+    assert unconfigured.status_code == 503
 
 
 def test_brand_logo_is_available_to_login_dashboard_and_browser_tab(database, browser):
@@ -317,6 +642,7 @@ def test_dashboard_has_budget_bill_edit_and_backup_controls(database, browser):
     assert 'id="recurring-form"' in dashboard
     assert 'id="edit-expense-dialog"' in dashboard
     assert 'id="backup-button"' in dashboard
+    assert 'id="recovery-email-form"' in dashboard
     assert dashboard.index('id="assistant"') < dashboard.index('aria-label="Monthly summary"')
 
 

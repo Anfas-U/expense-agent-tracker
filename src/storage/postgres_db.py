@@ -48,6 +48,40 @@ class PostgresDatabase:
             """,
             "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(username))",
             """
+            CREATE TABLE IF NOT EXISTS account_emails (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                email TEXT NOT NULL,
+                is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+                verified_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_emails_email_lower_idx ON account_emails (lower(email))",
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_emails_primary_user_idx ON account_emails (user_id) WHERE is_primary",
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_emails_pending_user_idx ON account_emails (user_id) WHERE NOT is_primary AND verified_at IS NULL",
+            """
+            CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                email TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS email_verification_tokens_user_created_idx ON email_verification_tokens (user_id, created_at)",
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS password_reset_tokens_user_created_idx ON password_reset_tokens (user_id, created_at)",
+            """
             CREATE TABLE IF NOT EXISTS web_sessions (
                 token_hash TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -140,7 +174,7 @@ class PostgresDatabase:
                 conn.execute(statement)
         self._schema_ready = True
 
-    def create_user(self, username: str, password_hash: str) -> Dict[str, str]:
+    def create_user(self, username: str, password_hash: str, email: str) -> Dict[str, str]:
         self.ensure_schema()
         user_id = str(uuid.uuid4())
         try:
@@ -149,13 +183,263 @@ class PostgresDatabase:
                     "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s) RETURNING id, username",
                     (user_id, username, password_hash),
                 ).fetchone()
+                conn.execute(
+                    "INSERT INTO account_emails (id, user_id, email) VALUES (%s, %s, %s)",
+                    (str(uuid.uuid4()), user_id, email.strip().lower()),
+                )
         except Exception as exc:
             from psycopg.errors import UniqueViolation
 
             if isinstance(exc, UniqueViolation):
-                raise ValueError("An account with that username already exists.") from exc
+                raise ValueError("An account with that username or email already exists.") from exc
             raise
         return {"id": row["id"], "username": row["username"]}
+
+    def set_pending_recovery_email(self, user_id: str, email: str) -> None:
+        self.ensure_schema()
+        normalized_email = email.strip().lower()
+        try:
+            with self._connect() as conn:
+                current = conn.execute(
+                    """
+                    SELECT id FROM account_emails
+                    WHERE user_id = %s AND is_primary AND lower(email) = %s
+                    """,
+                    (user_id, normalized_email),
+                ).fetchone()
+                if current:
+                    raise ValueError("This recovery email is already verified.")
+                conn.execute(
+                    "DELETE FROM account_emails WHERE user_id = %s AND NOT is_primary",
+                    (user_id,),
+                )
+                conn.execute(
+                    "UPDATE email_verification_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                    (user_id,),
+                )
+                conn.execute(
+                    "INSERT INTO account_emails (id, user_id, email) VALUES (%s, %s, %s)",
+                    (str(uuid.uuid4()), user_id, normalized_email),
+                )
+        except Exception as exc:
+            from psycopg.errors import UniqueViolation
+
+            if isinstance(exc, UniqueViolation):
+                raise ValueError("That email address is already associated with an account.") from exc
+            raise
+
+    def get_recovery_email_status(self, user_id: str) -> Dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT email, is_primary, verified_at
+                FROM account_emails
+                WHERE user_id = %s
+                ORDER BY is_primary DESC, created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        primary = next((row for row in rows if row["is_primary"]), None)
+        pending = next(
+            (row for row in rows if not row["is_primary"] and row["verified_at"] is None),
+            None,
+        )
+        return {
+            "email": primary["email"] if primary else None,
+            "verified": bool(primary and primary["verified_at"]),
+            "pending_email": pending["email"] if pending else None,
+        }
+
+    def create_email_verification_token(
+        self, user_id: str, email: str, token_hash: str, expires_at: dt.datetime
+    ) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"email-verification:{user_id}",),
+            )
+            conn.execute(
+                """
+                DELETE FROM email_verification_tokens
+                WHERE user_id = %s AND created_at < now() - interval '7 days'
+                """,
+                (user_id,),
+            )
+            count = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM email_verification_tokens
+                WHERE user_id = %s AND created_at > now() - interval '1 hour'
+                """,
+                (user_id,),
+            ).fetchone()["count"]
+            if count >= 3:
+                return False
+            pending = conn.execute(
+                """
+                SELECT id FROM account_emails
+                WHERE user_id = %s AND lower(email) = %s
+                  AND NOT is_primary AND verified_at IS NULL
+                """,
+                (user_id, email.strip().lower()),
+            ).fetchone()
+            if not pending:
+                return False
+            conn.execute(
+                "UPDATE email_verification_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                (user_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO email_verification_tokens (token_hash, user_id, email, expires_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (token_hash, user_id, email.strip().lower(), expires_at),
+            )
+        return True
+
+    def verify_email_token(self, token_hash: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            token = conn.execute(
+                """
+                SELECT user_id, email FROM email_verification_tokens
+                WHERE token_hash = %s AND used_at IS NULL AND expires_at > now()
+                FOR UPDATE
+                """,
+                (token_hash,),
+            ).fetchone()
+            if not token:
+                return False
+            pending = conn.execute(
+                """
+                SELECT id FROM account_emails
+                WHERE user_id = %s AND lower(email) = %s
+                  AND NOT is_primary AND verified_at IS NULL
+                FOR UPDATE
+                """,
+                (token["user_id"], token["email"].lower()),
+            ).fetchone()
+            if not pending:
+                conn.execute(
+                    "UPDATE email_verification_tokens SET used_at = now() WHERE token_hash = %s",
+                    (token_hash,),
+                )
+                return False
+            conn.execute(
+                "DELETE FROM account_emails WHERE user_id = %s AND is_primary",
+                (token["user_id"],),
+            )
+            conn.execute(
+                """
+                UPDATE account_emails
+                SET is_primary = TRUE, verified_at = now()
+                WHERE id = %s
+                """,
+                (pending["id"],),
+            )
+            conn.execute(
+                "UPDATE password_reset_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                (token["user_id"],),
+            )
+            conn.execute(
+                "UPDATE email_verification_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                (token["user_id"],),
+            )
+        return True
+
+    def get_user_by_verified_email(self, email: str) -> Optional[Dict[str, str]]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT users.id, users.username
+                FROM users
+                JOIN account_emails ON account_emails.user_id = users.id
+                WHERE lower(account_emails.email) = lower(%s)
+                  AND account_emails.is_primary
+                  AND account_emails.verified_at IS NOT NULL
+                """,
+                (email,),
+            ).fetchone()
+
+    def create_password_reset_token(
+        self, user_id: str, token_hash: str, expires_at: dt.datetime
+    ) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"password-reset:{user_id}",),
+            )
+            conn.execute(
+                """
+                DELETE FROM password_reset_tokens
+                WHERE user_id = %s AND created_at < now() - interval '7 days'
+                """,
+                (user_id,),
+            )
+            count = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM password_reset_tokens
+                WHERE user_id = %s AND created_at > now() - interval '1 hour'
+                """,
+                (user_id,),
+            ).fetchone()["count"]
+            if count >= 3:
+                return False
+            conn.execute(
+                "UPDATE password_reset_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                (user_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO password_reset_tokens (token_hash, user_id, expires_at)
+                VALUES (%s, %s, %s)
+                """,
+                (token_hash, user_id, expires_at),
+            )
+        return True
+
+    def has_valid_password_reset_token(self, token_hash: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM password_reset_tokens
+                WHERE token_hash = %s AND used_at IS NULL AND expires_at > now()
+                """,
+                (token_hash,),
+            ).fetchone()
+        return row is not None
+
+    def consume_password_reset_token(self, token_hash: str, password_hash: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            token = conn.execute(
+                """
+                SELECT user_id FROM password_reset_tokens
+                WHERE token_hash = %s AND used_at IS NULL AND expires_at > now()
+                FOR UPDATE
+                """,
+                (token_hash,),
+            ).fetchone()
+            if not token:
+                return False
+            conn.execute(
+                "UPDATE password_reset_tokens SET used_at = now() WHERE user_id = %s AND used_at IS NULL",
+                (token["user_id"],),
+            )
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (password_hash, token["user_id"]),
+            )
+            conn.execute(
+                "DELETE FROM web_sessions WHERE user_id = %s",
+                (token["user_id"],),
+            )
+        return True
 
     def get_user_by_username(self, username: str) -> Optional[Dict[str, str]]:
         self.ensure_schema()

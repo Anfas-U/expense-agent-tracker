@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14213D">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Verify recovery email | Pocket Money</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; color: #111827; background: #F7F5EF; }
+    * { box-sizing: border-box; }
+    body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 24px; }
+    .card { width: min(100%, 390px); border: 1px solid #E4E7EC; border-radius: 18px; background: #fff; padding: 30px; box-shadow: 0 12px 36px rgb(20 33 61 / 8%); }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 27px; }
+    .brand-mark { display: block; width: 44px; height: 44px; flex: 0 0 auto; }
+    .brand-name { font-size: 16px; font-weight: 750; }
+    .caption { margin-top: 3px; color: #667085; font-size: 12px; }
+    h1 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
+    .intro { margin: 8px 0 23px; color: #667085; font-size: 13px; line-height: 1.5; }
+    button { width: 100%; min-height: 44px; margin-top: 21px; border: 0; border-radius: 9px; background: #176F65; color: #fff; cursor: pointer; font: inherit; font-weight: 700; }
+    button:hover { background: #125B54; }
+    button:disabled { cursor: wait; opacity: .7; }
+    .status { min-height: 20px; margin: 12px 0 0; color: #b33e3e; font-size: 13px; }
+    .status.success { color: #176F65; }
+    .switch { display: block; margin-top: 16px; color: #667085; font-size: 12px; text-align: center; }
+    .switch a { color: #176F65; font-weight: 700; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <img class="brand-mark" src="/brand.svg" alt="">
+      <div><div class="brand-name">Pocket Money</div><div class="caption">Spend with intention</div></div>
+    </div>
+    <h1>Verify your recovery email</h1>
+    <p class="intro">Confirm this email address so you can use it to reset your Pocket Money password.</p>
+    <button id="verify-button" type="button">Verify email address</button>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <p class="switch"><a href="/login">Go to sign in</a></p>
+  </main>
+  <script>
+    const token = new URLSearchParams(window.location.hash.slice(1)).get("token") || "";
+    window.history.replaceState(null, "", "/verify-email");
+    const button = document.getElementById("verify-button");
+    const status = document.getElementById("status");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      status.textContent = "";
+      try {
+        const response = await fetch("/verify-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Could not verify this email.");
+        status.classList.add("success");
+        status.textContent = "Email verified. You can now use it to reset your password.";
+        button.textContent = "Email verified";
+      } catch (error) {
+        status.textContent = error.message || "Could not verify this email.";
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

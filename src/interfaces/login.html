@@ -29,6 +29,8 @@
     button:hover { background: #125B54; }
     button:disabled { cursor: wait; opacity: .7; }
     .error { min-height: 20px; margin: 12px 0 0; color: #b33e3e; font-size: 13px; }
+    .error.success { color: #176F65; }
+    [hidden] { display: none !important; }
     .switch { display: block; margin-top: 16px; color: #667085; font-size: 12px; text-align: center; }
     .switch a { color: #176F65; font-weight: 700; text-decoration: none; }
   </style>
@@ -42,13 +44,16 @@
     <h1 id="heading">Welcome back</h1>
     <p class="intro" id="intro">Sign in to view and manage your expenses.</p>
     <form id="login-form">
-      <label for="username">Username</label>
+      <label id="username-label" for="username">Username</label>
       <input id="username" name="username" autocomplete="username" required autofocus>
-      <label for="password">Password</label>
+      <label id="email-label" for="email" hidden>Email address</label>
+      <input id="email" name="email" type="email" autocomplete="email" hidden>
+      <label id="password-label" for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button id="submit" type="submit">Sign in</button>
       <p class="error" id="error" role="alert" aria-live="assertive"></p>
     </form>
+    <p class="switch" id="forgot-link"><a href="/forgot-password">Forgot your password?</a></p>
     <p class="switch" id="switch">New to Pocket Money? <a href="/signup">Create an account</a></p>
   </main>
   <script>
@@ -56,34 +61,74 @@
     const error = document.getElementById("error");
     const button = document.getElementById("submit");
     const signupMode = window.location.pathname === "/signup";
+    const forgotMode = window.location.pathname === "/forgot-password";
     const password = form.elements.password;
+    const email = form.elements.email;
+    const usernameLabel = document.getElementById("username-label");
+    const username = form.elements.username;
+    const emailLabel = document.getElementById("email-label");
+    const passwordLabel = document.getElementById("password-label");
+    if (new URLSearchParams(window.location.search).get("reset") === "success") {
+      error.classList.add("success");
+      error.textContent = "Password updated. Sign in with your new password.";
+    }
     if (signupMode) {
       document.getElementById("heading").textContent = "Create your account";
-      document.getElementById("intro").textContent = "Your expenses are private to your account.";
+      document.getElementById("intro").textContent = "Your expenses are private to your account. Add an email for password recovery.";
       document.getElementById("submit").textContent = "Create account";
       document.getElementById("switch").innerHTML =
         'Already have an account? <a href="/login">Sign in</a>';
+      email.hidden = false;
+      email.required = true;
+      emailLabel.hidden = false;
+      document.getElementById("forgot-link").hidden = true;
       password.autocomplete = "new-password";
       password.minLength = 12;
       password.title = "Use at least 12 characters.";
+    } else if (forgotMode) {
+      document.getElementById("heading").textContent = "Forgot your password?";
+      document.getElementById("intro").textContent = "Enter your verified recovery email and we’ll send a reset link.";
+      document.getElementById("submit").textContent = "Send reset link";
+      username.hidden = true;
+      username.required = false;
+      usernameLabel.hidden = true;
+      password.hidden = true;
+      password.required = false;
+      passwordLabel.hidden = true;
+      email.hidden = false;
+      email.required = true;
+      emailLabel.hidden = false;
+      document.getElementById("forgot-link").hidden = true;
+      document.getElementById("switch").innerHTML =
+        'Remembered your password? <a href="/login">Sign in</a>';
+      email.focus();
     }
 
     form.addEventListener("submit", async event => {
       event.preventDefault();
       error.textContent = "";
+      error.classList.remove("success");
       button.disabled = true;
+      const body = signupMode
+        ? { username: username.value, password: password.value, email: email.value }
+        : forgotMode
+          ? { email: email.value }
+          : { username: username.value, password: password.value };
       try {
-        const response = await fetch(signupMode ? "/signup" : "/login", {
+        const endpoint = signupMode ? "/signup" : forgotMode ? "/forgot-password" : "/login";
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: form.elements.username.value,
-            password: form.elements.password.value
-          })
+          body: JSON.stringify(body)
         });
         const result = await response.json();
         if (!response.ok) {
           error.textContent = result.detail || "Sign-in failed. Please try again.";
+          return;
+        }
+        if (forgotMode) {
+          error.classList.add("success");
+          error.textContent = result.message;
           return;
         }
         window.location.assign("/");

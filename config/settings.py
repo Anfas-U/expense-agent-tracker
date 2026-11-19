@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Hosted multi-user web access
     database_url: str = Field(default="", description="PostgreSQL connection URL for hosted accounts and user data")
     cookie_secure: bool = Field(default=True, description="Set session cookies Secure (disable only for local HTTP tests)")
+    resend_api_key: str = Field(default="", description="API key for sending account verification and password reset emails")
+    email_from: str = Field(default="", description="Verified sender address for account emails")
+    public_base_url: str = Field(default="", description="Public HTTPS base URL used in account email links")
 
     # File Paths
     data_dir: Path = Field(default=BASE_DIR / "data")

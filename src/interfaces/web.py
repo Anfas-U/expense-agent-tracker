@@ -4,12 +4,17 @@ import base64
 import csv
 import datetime as dt
 import hashlib
+import html
 import io
+import json
 import logging
 import re
 import secrets
 from pathlib import Path
 from typing import Any, Optional
+from urllib import error as url_error
+from urllib import parse as url_parse
+from urllib import request as url_request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -30,12 +35,21 @@ app = FastAPI(title="Pocket Money", docs_url=None, redoc_url=None)
 logger = logging.getLogger(__name__)
 _WEB_PAGE = Path(__file__).with_name("web.html")
 _LOGIN_PAGE = Path(__file__).with_name("login.html")
+_PASSWORD_RESET_PAGE = Path(__file__).with_name("password_reset.html")
+_EMAIL_VERIFICATION_PAGE = Path(__file__).with_name("verify_email.html")
 _BRAND_IMAGE = Path(__file__).with_name("brand.svg")
 _SESSION_COOKIE = "pocket_money_session"
 _SESSION_MAX_AGE = 30 * 24 * 60 * 60
 _MAX_BACKUP_RECEIPT_BYTES = 25 * 1024 * 1024
+_PASSWORD_RESET_TTL = dt.timedelta(minutes=30)
+_EMAIL_VERIFICATION_TTL = dt.timedelta(hours=24)
 _database_instance: Optional[PostgresDatabase] = None
 _PASSWORD_SCRYPT_N = 2**14
+_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
 
 
 @app.middleware("http")
@@ -113,6 +127,121 @@ def _verify_password(password: str, stored_hash: str) -> bool:
     return secrets.compare_digest(actual, expected)
 
 
+class EmailDeliveryError(RuntimeError):
+    """Raised when the configured email service cannot accept a message."""
+
+
+def _email_service_configured() -> bool:
+    try:
+        parsed_url = url_parse.urlsplit(settings.public_base_url.strip())
+    except ValueError:
+        return False
+    return bool(
+        settings.resend_api_key.strip()
+        and settings.email_from.strip()
+        and parsed_url.scheme == "https"
+        and parsed_url.netloc
+        and parsed_url.path in {"", "/"}
+        and not parsed_url.query
+        and not parsed_url.fragment
+        and not parsed_url.username
+        and not parsed_url.password
+    )
+
+
+def _require_email_service() -> None:
+    if not _email_service_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Account email is not configured. The site owner must set "
+                "RESEND_API_KEY, EMAIL_FROM, and PUBLIC_BASE_URL."
+            ),
+        )
+
+
+def _send_resend_email(recipient: str, subject: str, text: str) -> None:
+    payload = json.dumps(
+        {
+            "from": settings.email_from,
+            "to": [recipient],
+            "subject": subject,
+            "text": text,
+            "html": f"<p>{html.escape(text).replace(chr(10), '<br>')}</p>",
+        }
+    ).encode("utf-8")
+    request = url_request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.resend_api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with url_request.urlopen(request, timeout=10) as response:
+            if not 200 <= response.status < 300:
+                raise EmailDeliveryError("The email provider rejected the message.")
+    except (url_error.URLError, TimeoutError, OSError) as exc:
+        raise EmailDeliveryError("The email provider could not be reached.") from exc
+
+
+def _account_link(path: str, token: str) -> str:
+    base_url = settings.public_base_url.strip().rstrip("/")
+    return f"{base_url}{path}#{url_parse.urlencode({'token': token})}"
+
+
+def _token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _send_verification_email(
+    database: PostgresDatabase, user_id: str, email: str
+) -> bool:
+    token = secrets.token_urlsafe(32)
+    if not database.create_email_verification_token(
+        user_id,
+        email,
+        _token_digest(token),
+        dt.datetime.now(dt.timezone.utc) + _EMAIL_VERIFICATION_TTL,
+    ):
+        return False
+    link = _account_link("/verify-email", token)
+    _send_resend_email(
+        email,
+        "Verify your Pocket Money recovery email",
+        (
+            "Use this link to verify your Pocket Money recovery email. "
+            f"The link expires in 24 hours:\n{link}"
+        ),
+    )
+    return True
+
+
+def _send_password_reset_email(
+    database: PostgresDatabase, user_id: str, email: str
+) -> bool:
+    token = secrets.token_urlsafe(32)
+    if not database.create_password_reset_token(
+        user_id,
+        _token_digest(token),
+        dt.datetime.now(dt.timezone.utc) + _PASSWORD_RESET_TTL,
+    ):
+        return False
+    link = _account_link("/reset-password", token)
+    _send_resend_email(
+        email,
+        "Reset your Pocket Money password",
+        (
+            "Use this link to reset your Pocket Money password. "
+            f"The link expires in 30 minutes. If you did not request this, "
+            f"you can ignore this email:\n{link}"
+        ),
+    )
+    return True
+
+
 def _set_session_cookie(response: Response, database: PostgresDatabase, user_id: str) -> None:
     token = secrets.token_urlsafe(32)
     database.create_session(
@@ -142,6 +271,42 @@ class AccountCredentials(BaseModel):
         if not re.fullmatch(r"[a-z0-9._@+-]{3,254}", username):
             raise ValueError("Use 3–254 letters, numbers, dots, underscores, @, +, or hyphens.")
         return username
+
+
+class SignupCredentials(AccountCredentials):
+    email: str = Field(min_length=6, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if not _EMAIL_RE.fullmatch(email):
+            raise ValueError("Enter a valid email address.")
+        return email
+
+
+class EmailAddressRequest(BaseModel):
+    email: str = Field(min_length=6, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if not _EMAIL_RE.fullmatch(email):
+            raise ValueError("Enter a valid email address.")
+        return email
+
+
+class RecoveryEmailRequest(EmailAddressRequest):
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class TokenRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=128, pattern="^[A-Za-z0-9_-]+$")
+
+
+class ResetPasswordRequest(TokenRequest):
+    password: str = Field(min_length=12, max_length=1024)
 
 
 class BudgetRequest(BaseModel):
@@ -253,6 +418,21 @@ def login_page() -> FileResponse:
     return FileResponse(_LOGIN_PAGE, media_type="text/html")
 
 
+@app.get("/forgot-password", include_in_schema=False)
+def forgot_password_page() -> FileResponse:
+    return FileResponse(_LOGIN_PAGE, media_type="text/html")
+
+
+@app.get("/reset-password", include_in_schema=False)
+def reset_password_page() -> FileResponse:
+    return FileResponse(_PASSWORD_RESET_PAGE, media_type="text/html")
+
+
+@app.get("/verify-email", include_in_schema=False)
+def verify_email_page() -> FileResponse:
+    return FileResponse(_EMAIL_VERIFICATION_PAGE, media_type="text/html")
+
+
 @app.get("/brand.svg", include_in_schema=False)
 @app.get("/favicon.svg", include_in_schema=False)
 def brand_image() -> FileResponse:
@@ -262,20 +442,107 @@ def brand_image() -> FileResponse:
 
 @app.post("/signup", include_in_schema=False)
 def signup(
-    credentials: AccountCredentials,
+    credentials: SignupCredentials,
     database: PostgresDatabase = Depends(get_database),
 ) -> Response:
     """Create an independent account and start its authenticated session."""
     try:
-        user = database.create_user(credentials.username, _hash_password(credentials.password))
+        user = database.create_user(
+            credentials.username, _hash_password(credentials.password), credentials.email
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Could not create an account (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Account creation is temporarily unavailable.") from exc
-    response = JSONResponse({"ok": True, "username": user["username"]})
+    verification_email_sent = False
+    if _email_service_configured():
+        try:
+            verification_email_sent = _send_verification_email(
+                database, user["id"], credentials.email
+            )
+        except EmailDeliveryError as exc:
+            logger.error("Could not send account verification email (%s)", type(exc).__name__)
+    response = JSONResponse(
+        {
+            "ok": True,
+            "username": user["username"],
+            "email_verification_sent": verification_email_sent,
+        }
+    )
     _set_session_cookie(response, database, user["id"])
     return response
+
+
+@app.post("/forgot-password", include_in_schema=False)
+def request_password_reset(
+    body: EmailAddressRequest,
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """Send a generic, rate-limited reset response without revealing account existence."""
+    _require_email_service()
+    try:
+        account = database.get_user_by_verified_email(body.email)
+        if account:
+            try:
+                _send_password_reset_email(database, account["id"], body.email)
+            except EmailDeliveryError as exc:
+                logger.error("Could not send a password reset email (%s)", type(exc).__name__)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Could not process a password reset request (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Password reset is temporarily unavailable."
+        ) from exc
+    return {
+        "ok": True,
+        "message": "If a verified account uses that email, a reset link will be sent.",
+    }
+
+
+@app.post("/verify-email", include_in_schema=False)
+def verify_email(
+    body: TokenRequest,
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    try:
+        verified = database.verify_email_token(_token_digest(body.token))
+    except Exception as exc:
+        logger.error("Could not verify an account email (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Email verification is temporarily unavailable."
+        ) from exc
+    if not verified:
+        raise HTTPException(status_code=400, detail="This verification link is invalid or expired.")
+    return {"ok": True}
+
+
+@app.post("/reset-password", include_in_schema=False)
+def reset_password(
+    body: ResetPasswordRequest,
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    token_hash = _token_digest(body.token)
+    try:
+        if not database.has_valid_password_reset_token(token_hash):
+            raise HTTPException(
+                status_code=400,
+                detail="This password reset link is invalid or expired.",
+            )
+        updated = database.consume_password_reset_token(
+            token_hash, _hash_password(body.password)
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Could not reset an account password (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Password reset is temporarily unavailable."
+        ) from exc
+    if not updated:
+        raise HTTPException(status_code=400, detail="This password reset link is invalid or expired.")
+    return {"ok": True}
 
 
 @app.post("/login", include_in_schema=False)
@@ -475,6 +742,55 @@ def _safe_csv_text(value: str) -> str:
     if value.lstrip().startswith(("=", "+", "-", "@")):
         return "'" + value
     return value
+
+
+@app.get("/api/account/recovery-email")
+def read_recovery_email(
+    user: dict[str, str] = Depends(get_current_user),
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    try:
+        status = database.get_recovery_email_status(user["id"])
+    except Exception as exc:
+        logger.error("Could not read recovery email settings (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Recovery email settings are temporarily unavailable."
+        ) from exc
+    return {**status, "email_configured": _email_service_configured()}
+
+
+@app.put("/api/account/recovery-email")
+def update_recovery_email(
+    body: RecoveryEmailRequest,
+    user: dict[str, str] = Depends(get_current_user),
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    _require_email_service()
+    try:
+        account = database.get_user_by_id(user["id"])
+        if not account or not _verify_password(body.password, account["password_hash"]):
+            raise HTTPException(status_code=401, detail="Incorrect password.")
+        database.set_pending_recovery_email(user["id"], body.email)
+        if not _send_verification_email(database, user["id"], body.email):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many verification emails were requested. Try again later.",
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EmailDeliveryError as exc:
+        logger.error("Could not send a recovery email verification (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Could not send the verification email. Please try again."
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Could not update a recovery email (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="Recovery email could not be updated."
+        ) from exc
+    return {"ok": True}
 
 
 @app.get("/api/summary")

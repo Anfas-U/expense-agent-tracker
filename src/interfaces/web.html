@@ -213,6 +213,8 @@
     .hint, .status { margin: 9px 0 0; color: #9aa2b2; font-size: 10px; line-height: 1.5; }
     .error { color: #c14949; }
     .alerts { display: flex; gap: 9px; align-items: flex-start; margin: 13px 0 0; border: 1px solid #f6e5c9; border-radius: 9px; background: #fffaf1; padding: 10px; color: #9a6a22; font-size: 11px; line-height: 1.5; }
+    .recovery-alert { justify-content: space-between; margin: 0 0 18px; }
+    .recovery-alert a { color: #176F65; font-weight: 700; white-space: nowrap; }
     .footer-note { margin-top: 23px; color: #a2aab8; font-size: 10px; text-align: center; }
     @media (max-width: 1050px) {
       .app-shell { grid-template-columns: 210px minmax(0, 1fr); }
@@ -254,6 +256,7 @@
         <a class="nav-link" href="#spending"><span class="nav-icon" aria-hidden="true">◔</span>Spending</a>
         <a class="nav-link" href="#budgets"><span class="nav-icon" aria-hidden="true">◫</span>Budgets</a>
         <a class="nav-link" href="#recurring"><span class="nav-icon" aria-hidden="true">↻</span>Bills</a>
+        <a class="nav-link" href="#account-recovery"><span class="nav-icon" aria-hidden="true">◎</span>Account</a>
         <a class="nav-link" href="#assistant"><span class="nav-icon" aria-hidden="true">✦</span>Assistant</a>
       </nav>
       <div class="sidebar-bottom">
@@ -285,6 +288,10 @@
           </form>
           <button class="delete-account-button" id="delete-account" type="button">Delete account</button>
         </div>
+      </div>
+      <div class="alerts recovery-alert" id="recovery-email-alert" hidden>
+        <span id="recovery-email-alert-text"></span>
+        <a href="#account-recovery">Set up</a>
       </div>
 
       <section class="page-heading">
@@ -416,6 +423,23 @@
             <div class="recurring-list" id="recurring-list"></div>
             <p class="empty" id="recurring-empty" hidden>No recurring bills added yet.</p>
           </section>
+            <section class="panel" id="account-recovery">
+              <div class="panel-heading">
+                <h2 class="panel-title">Account recovery</h2>
+                <span class="panel-meta">Password reset</span>
+              </div>
+              <p class="hint" id="recovery-email-current" role="status" aria-live="polite">Checking your recovery email...</p>
+              <form class="management-form" id="recovery-email-form">
+                <label>Recovery email
+                  <input id="recovery-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
+                </label>
+                <label>Current password
+                  <input id="recovery-email-password" name="password" type="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit">Send verification link</button>
+              </form>
+              <p class="management-status" id="recovery-email-status" role="status" aria-live="polite"></p>
+            </section>
         </div>
       </div>
       <p class="footer-note">Pocket Money · Spend with intention · Your account data stays private</p>
@@ -820,6 +844,75 @@
       }
     });
 
+    async function refreshRecoveryEmail() {
+      const current = document.getElementById("recovery-email-current");
+      const alert = document.getElementById("recovery-email-alert");
+      const alertText = document.getElementById("recovery-email-alert-text");
+      try {
+        const response = await fetch("/api/account/recovery-email");
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Could not check recovery email.");
+        if (!result.email_configured) {
+          current.textContent = "Password recovery email is not configured by the site owner yet.";
+          alert.hidden = false;
+          alertText.textContent = "Password recovery email is not available until the site owner configures email.";
+          return;
+        }
+        if (result.verified) {
+          current.textContent = `Verified recovery email: ${result.email}`;
+          document.getElementById("recovery-email").value = result.email;
+          alert.hidden = true;
+        } else if (result.pending_email) {
+          current.textContent = `Waiting for you to verify: ${result.pending_email}`;
+          document.getElementById("recovery-email").value = result.pending_email;
+          alert.hidden = false;
+          alertText.textContent = "Verify your recovery email to make password reset available.";
+        } else {
+          current.textContent = "Add and verify an email so you can reset your password if you forget it.";
+          alert.hidden = false;
+          alertText.textContent = "Add and verify a recovery email so you can reset your password if you forget it.";
+        }
+      } catch (error) {
+        current.textContent = error.message || "Could not check recovery email.";
+      }
+    }
+
+    document.getElementById("recovery-email-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const status = document.getElementById("recovery-email-status");
+      status.textContent = "";
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/account/recovery-email", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("recovery-email").value,
+            password: document.getElementById("recovery-email-password").value
+          })
+        });
+        const result = await response.json();
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) throw new Error(result.detail || "Could not send verification email.");
+        document.getElementById("recovery-email-password").value = "";
+        status.textContent = "Verification link sent. Check your inbox, then open the link to confirm.";
+        await refreshRecoveryEmail();
+      } catch (error) {
+        status.textContent = error.message || "Could not send verification email.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     document.getElementById("budget-form").addEventListener("submit", async event => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -1065,6 +1158,7 @@
     });
 
     refreshDashboard();
+    refreshRecoveryEmail();
   </script>
 </body>
 </html>

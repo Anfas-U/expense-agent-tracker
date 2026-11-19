@@ -24,7 +24,7 @@ Built according to [PRD.md](file:///c:/Users/anfas/Desktop/expense%20agent%20tra
 - **Recurring Expenses Scheduler**: Monthly automated logging for rent, subscriptions, and recurring bills.
 - **Dual Storage**: Seamless zero-configuration local CSV/SQLite storage out-of-the-box, with instant Google Sheets synchronization when credentials are provided.
 - **Multiple Channels**: Interactive developer CLI and full Telegram Bot integration.
-- **Pocket Money Dashboard**: Branded dashboard with monthly insights, all-time category totals, monthly budget progress and alerts, recurring-bill reminders, expense editing, private account backups, category filters, merchant search, chat, and CSV export.
+- **Pocket Money Dashboard**: Branded dashboard with monthly insights, all-time category totals, monthly budget progress and alerts, recurring-bill reminders, expense editing, verified-email password recovery, private account backups, category filters, merchant search, chat, and CSV export.
 
 ---
 
@@ -93,11 +93,14 @@ Install dependencies and run the web server:
 ```
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000), create an account, and
 sign in. Each account has independent expenses, budgets, settings, recurring
-expenses, receipts, and sessions. Passwords are stored as scrypt hashes and
-sessions are random, revocable PostgreSQL records. Browser sessions last 30
-days. Records are not automatically expired or removed; they remain until the
-account owner deletes them or deletes their account. `DELETE /api/account`
-requires the account password and permanently removes that account's data.
+expenses, receipts, and sessions. Sign-up collects a recovery email; users can
+verify or change it in the dashboard's Account section. Existing users can add
+and verify a recovery email while signed in. Passwords are stored as scrypt
+hashes and sessions are random, revocable PostgreSQL records. Browser sessions
+last 30 days. Records are not automatically expired or removed; they remain
+until the account owner deletes them or deletes their account.
+`DELETE /api/account` requires the account password and permanently removes
+that account's data.
 The dashboard lets each user set monthly budgets, see alerts at 80% and over
 budget, manage recurring bills with due-date reminders, and edit recent
 expenses. Recurring reminders appear when the user opens the dashboard; they
@@ -122,12 +125,28 @@ need:
 - Optionally, `LLM_PROVIDER`, `LLM_API_KEY`, and `LLM_MODEL` for live assistant
   responses. Without an API key the app uses the project's local mock agent.
 
+Forgot-password and email-verification links use Resend. Create a Resend
+account, verify a sender domain, and set these environment variables on the
+host (or in a private local `.env`):
+
+- `RESEND_API_KEY`: Resend API key. Keep it secret.
+- `EMAIL_FROM`: sender on the verified domain, such as
+  `Pocket Money <support@example.com>`.
+- `PUBLIC_BASE_URL`: the app's public HTTPS origin, with no trailing slash.
+
+Reset links expire after 30 minutes, verification links after 24 hours, and
+each link can be used once. Reset links are sent only to verified recovery
+emails; successful resets revoke all active sessions for that account. Emails
+are sent through Resend's HTTPS API. If email settings are missing, existing
+accounts still work, but forgot-password and email verification are unavailable.
+
 For the included Render blueprint, create a Neon PostgreSQL project first and
 copy its pooled connection URL from the Neon dashboard. In Render, create a
 new Blueprint from this GitHub repository; Render reads `render.yaml` and asks
-for `DATABASE_URL`. Paste the connection URL into Render's secret field (not
-into this repository). Deploy, wait for the service health check, then open its
-`onrender.com` URL and create the first account.
+for `DATABASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_BASE_URL`.
+Enter secrets in Render's environment settings (not into this repository).
+Deploy, wait for the service health check, then open its `onrender.com` URL and
+create the first account.
 
 `DATABASE_URL` and `COOKIE_SECURE` are the web app's required deployment
 settings. `DEFAULT_CURRENCY` and `DEFAULT_TIMEZONE` provide per-account initial
