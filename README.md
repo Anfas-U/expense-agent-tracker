@@ -24,7 +24,7 @@ Built according to [PRD.md](file:///c:/Users/anfas/Desktop/expense%20agent%20tra
 - **Recurring Expenses Scheduler**: Monthly automated logging for rent, subscriptions, and recurring bills.
 - **Dual Storage**: Seamless zero-configuration local CSV/SQLite storage out-of-the-box, with instant Google Sheets synchronization when credentials are provided.
 - **Multiple Channels**: Interactive developer CLI and full Telegram Bot integration.
-- **Pocket Money Dashboard**: Branded dashboard with monthly insights, all-time spending totals by category, category filters, merchant search, chat, and CSV export.
+- **Pocket Money Dashboard**: Branded dashboard with monthly insights, all-time category totals, monthly budget progress and alerts, recurring-bill reminders, expense editing, private account backups, category filters, merchant search, chat, and CSV export.
 
 ---
 
@@ -98,6 +98,16 @@ sessions are random, revocable PostgreSQL records. Browser sessions last 30
 days. Records are not automatically expired or removed; they remain until the
 account owner deletes them or deletes their account. `DELETE /api/account`
 requires the account password and permanently removes that account's data.
+The dashboard lets each user set monthly budgets, see alerts at 80% and over
+budget, manage recurring bills with due-date reminders, and edit recent
+expenses. Recurring reminders appear when the user opens the dashboard; they
+do not send email or text messages.
+
+Users can download a private JSON backup from the dashboard. It includes their
+expenses, budgets, merchant rules, recurring bills, settings, and receipt
+images. Receipt images are limited to 25 MiB per download. This is a manual
+per-account export, not an automatic database backup; configure automatic
+backup and restore retention with the hosted PostgreSQL provider as well.
 
 The app's hosted tables are created automatically. For a public deployment you
 need:

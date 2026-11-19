@@ -1,5 +1,6 @@
 """Tests for authenticated, per-account web data access."""
 
+import base64
 import datetime as dt
 import io
 
@@ -33,6 +34,13 @@ class MemoryUserDatabase:
     def get_all_expenses(self, limit=500):
         values = sorted(self.expenses.values(), key=lambda item: (item.date, item.created_at), reverse=True)
         return values if limit is None else values[:limit]
+
+    def update_expense(self, expense_id, updates):
+        expense = self.expenses.get(expense_id)
+        if not expense:
+            return False
+        self.expenses[expense_id] = expense.model_copy(update=updates)
+        return True
 
     def get_expense_category_totals(self):
         totals = {}
@@ -89,6 +97,9 @@ class MemoryUserDatabase:
     def get_active_recurring_expenses(self):
         return [item for item in self.recurring.values() if item["is_active"]]
 
+    def get_all_recurring_expenses(self):
+        return [dict(item) for item in self.recurring.values()]
+
     def delete_recurring_expense(self, recurring_id):
         item = self.recurring.get(recurring_id)
         if not item or not item["is_active"]:
@@ -106,11 +117,18 @@ class MemoryUserDatabase:
             "filename": filename,
             "content_type": content_type,
             "data": data,
+            "created_at": dt.datetime.now(dt.timezone.utc),
         }
         return receipt_id
 
     def get_receipt(self, receipt_id):
         return self.receipts.get(receipt_id)
+
+    def get_all_receipts(self):
+        return list(self.receipts.values())
+
+    def get_receipt_storage_size(self):
+        return sum(len(receipt["data"]) for receipt in self.receipts.values())
 
     def delete_receipt(self, receipt_id):
         return self.receipts.pop(receipt_id, None) is not None
@@ -253,6 +271,7 @@ def test_dashboard_and_private_routes_require_an_account(database, browser):
         "/api/expenses",
         "/api/expenses/export",
         "/api/expenses/category-totals",
+        "/api/account/backup",
         "/api/summary",
         "/api/settings",
     ):
@@ -270,6 +289,16 @@ def test_dashboard_currency_selector_includes_rupees_by_default(database, browse
     assert 'id="currency-select"' in dashboard
     assert '<option value="INR">₹ INR</option>' in dashboard
     assert settings_response.json()["settings"]["default_currency"] == "INR"
+
+
+def test_dashboard_has_budget_bill_edit_and_backup_controls(database, browser):
+    create_account(browser, "alice")
+    dashboard = browser.get("/").text
+
+    assert 'id="budget-form"' in dashboard
+    assert 'id="recurring-form"' in dashboard
+    assert 'id="edit-expense-dialog"' in dashboard
+    assert 'id="backup-button"' in dashboard
 
 
 def test_all_time_category_totals_group_expenses_and_stay_account_scoped(database):
@@ -303,6 +332,78 @@ def test_all_time_category_totals_group_expenses_and_stay_account_scoped(databas
     assert bob_totals == [
         {"category": "Fuel", "expense_count": 1, "total_amount": 2000.0}
     ]
+
+
+def test_expense_editing_is_validated_and_account_scoped(database):
+    alice = TestClient(web.app)
+    bob = TestClient(web.app)
+    create_account(alice, "alice")
+    create_account(bob, "bob")
+    expense = ExpenseEntry(
+        id="edit-me", amount=500, merchant="Petrol station", category="Fuel"
+    )
+    database.user_database("user-1").insert_expense(expense)
+
+    cross_account = bob.patch(
+        "/api/expenses/edit-me",
+        json={"amount": 1, "category": "Dining"},
+    )
+    invalid = alice.patch("/api/expenses/edit-me", json={"amount": 0})
+    updated = alice.patch(
+        "/api/expenses/edit-me",
+        json={
+            "amount": 550,
+            "merchant": "City Petrol",
+            "category": "Fuel",
+            "date": "2026-11-18",
+            "notes": "Corrected receipt",
+        },
+    )
+
+    assert cross_account.status_code == 404
+    assert invalid.status_code == 422
+    assert updated.status_code == 200
+    saved = alice.get("/api/expenses").json()["expenses"][0]
+    assert saved["amount"] == 550
+    assert saved["merchant"] == "City Petrol"
+    assert saved["notes"] == "Corrected receipt"
+    assert database.user_database("user-2").expenses == {}
+
+
+def test_private_backup_contains_all_account_data_and_receipts(database):
+    alice = TestClient(web.app)
+    bob = TestClient(web.app)
+    create_account(alice, "alice")
+    create_account(bob, "bob")
+    alice_store = database.user_database("user-1")
+    bob_store = database.user_database("user-2")
+    alice_store.insert_expense(
+        ExpenseEntry(id="alice-expense", amount=450, merchant="Fuel pump", category="Fuel")
+    )
+    bob_store.insert_expense(
+        ExpenseEntry(id="bob-expense", amount=900, merchant="Other", category="Dining")
+    )
+    alice_store.set_budget("Fuel", 2000)
+    alice_store.rules["fuel pump"] = "Fuel"
+    alice_store.add_recurring_expense("Rent", 15000, "Housing", day_of_month=5)
+    alice_store.create_receipt("fuel.png", "image/png", b"private receipt bytes")
+    alice_store.set_user_setting("default_currency", "INR")
+
+    response = alice.get("/api/account/backup")
+    backup = response.json()
+
+    assert response.status_code == 200
+    assert "attachment;" in response.headers["content-disposition"]
+    assert backup["format"] == "pocket-money-account-backup"
+    assert [expense["id"] for expense in backup["expenses"]] == ["alice-expense"]
+    assert backup["budgets"] == {"Fuel": 2000}
+    assert backup["merchant_rules"] == {"fuel pump": "Fuel"}
+    assert backup["recurring_expenses"][0]["title"] == "Rent"
+    assert backup["settings"]["default_currency"] == "INR"
+    assert base64.b64decode(backup["receipts"][0]["data_base64"]) == b"private receipt bytes"
+    assert "bob-expense" not in response.text
+    assert "password_hash" not in backup
+    assert "session" not in backup
 
 
 def test_expenses_budgets_settings_recurring_and_receipts_are_account_scoped(database):
@@ -347,6 +448,10 @@ def test_expenses_budgets_settings_recurring_and_receipts_are_account_scoped(dat
     )
     recurring_id = recurring.json()["id"]
     assert recurring.status_code == 201
+    alice_recurring = alice.get("/api/recurring-expenses").json()["recurring_expenses"]
+    assert alice_recurring[0]["title"] == "Rent"
+    assert isinstance(alice_recurring[0]["next_due_date"], str)
+    assert alice_recurring[0]["days_until_due"] >= 0
     assert bob.get("/api/recurring-expenses").json()["recurring_expenses"] == []
     assert bob.delete(f"/api/recurring-expenses/{recurring_id}").status_code == 404
 

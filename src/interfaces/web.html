@@ -137,6 +137,7 @@
       font-weight: 700;
       text-decoration: none;
       white-space: nowrap;
+      cursor: pointer;
       transition: background .15s ease;
     }
     .export-button:hover { background: #E3F2EF; }
@@ -167,6 +168,39 @@
     .category-total-name { color: var(--black); font-size: 12px; font-weight: 650; }
     .category-total-count { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
     .category-total-amount { color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .management-form { display: grid; gap: 10px; margin-bottom: 15px; }
+    .management-form label { display: grid; gap: 5px; color: #475467; font-size: 11px; font-weight: 650; }
+    .management-form input { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; color: var(--black); font: inherit; }
+    .management-form input:focus { outline: 3px solid #2A9D8F33; border-color: #2A9D8F; }
+    .management-form button { min-height: 36px; border: 0; border-radius: 8px; background: #176F65; color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .management-form button:hover { background: #125B54; }
+    .management-form button:disabled { cursor: wait; opacity: .65; }
+    .management-status { min-height: 14px; margin: -5px 0 10px; color: var(--muted); font-size: 11px; }
+    .budget-list, .recurring-list { display: grid; gap: 12px; }
+    .budget-row { display: grid; gap: 6px; }
+    .budget-row-top, .recurring-row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .budget-name, .recurring-name { color: var(--black); font-size: 12px; font-weight: 700; }
+    .budget-amount, .recurring-amount { color: var(--ink); font-size: 11px; font-weight: 700; text-align: right; white-space: nowrap; }
+    .budget-meta, .recurring-meta { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .budget-progress { height: 7px; overflow: hidden; border-radius: 8px; background: #E8EDF2; }
+    .budget-progress-fill { width: var(--progress, 0%); height: 100%; border-radius: inherit; background: #2A9D8F; }
+    .budget-progress-fill.near-limit { background: #D18A52; }
+    .budget-progress-fill.over-limit { background: #C14949; }
+    .recurring-row { display: grid; gap: 6px; padding-bottom: 11px; border-bottom: 1px solid #f0f2f6; }
+    .recurring-row:last-child { padding-bottom: 0; border-bottom: 0; }
+    .recurring-due { color: #176F65; font-size: 10px; font-weight: 700; }
+    .management-action { min-height: 27px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #475467; cursor: pointer; font-size: 10px; font-weight: 650; }
+    .management-action:hover { border-color: #2A9D8F; color: #176F65; }
+    .row-edit-button { min-height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #176F65; cursor: pointer; font-size: 10px; font-weight: 700; }
+    .row-edit-button:hover { border-color: #2A9D8F; background: #F0F8F6; }
+    .edit-dialog { width: min(440px, calc(100% - 32px)); border: 1px solid var(--line); border-radius: 16px; padding: 22px; color: var(--black); box-shadow: 0 18px 48px rgb(20 33 61 / 20%); }
+    .edit-dialog::backdrop { background: rgb(17 24 39 / 45%); }
+    .edit-dialog h2 { margin: 0 0 16px; color: #14213D; font-size: 18px; }
+    .edit-dialog .management-form { margin-bottom: 0; }
+    .edit-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .edit-dialog-actions button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #475467; cursor: pointer; font-size: 12px; font-weight: 650; }
+    .edit-dialog-actions button[type="submit"] { border-color: #176F65; background: #176F65; color: #fff; }
+    .edit-dialog-actions button:disabled { cursor: wait; opacity: .65; }
     .chat-panel { padding-bottom: 17px; }
     .assistant-tag { padding: 5px 8px; border-radius: 20px; background: #E8F5F2; color: #176F65; font-size: 10px; font-weight: 700; }
     .chat-log { display: flex; min-height: 140px; max-height: 300px; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px 2px 12px; }
@@ -221,6 +255,8 @@
         <a class="nav-link active" href="#overview"><span class="nav-icon" aria-hidden="true">▦</span>Overview</a>
         <a class="nav-link" href="#transactions"><span class="nav-icon" aria-hidden="true">↔</span>Transactions</a>
         <a class="nav-link" href="#spending"><span class="nav-icon" aria-hidden="true">◔</span>Spending</a>
+        <a class="nav-link" href="#budgets"><span class="nav-icon" aria-hidden="true">◫</span>Budgets</a>
+        <a class="nav-link" href="#recurring"><span class="nav-icon" aria-hidden="true">↻</span>Bills</a>
         <a class="nav-link" href="#assistant"><span class="nav-icon" aria-hidden="true">✦</span>Assistant</a>
       </nav>
       <div class="sidebar-bottom">
@@ -293,10 +329,13 @@
                 <option value="">All categories</option>
               </select>
               <a class="export-button" href="/api/expenses/export" aria-label="Download all expenses as CSV"><span aria-hidden="true">↓</span> Export CSV</a>
+              <button class="export-button" id="backup-button" type="button">↓ Backup my data</button>
             </div>
+            <p class="status" id="backup-status" role="status" aria-live="polite"></p>
+            <p class="hint">This private download includes your expense records and receipt images. Keep it somewhere safe.</p>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
+                <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th style="text-align:right">Amount</th><th>Action</th></tr></thead>
                 <tbody id="expenses"></tbody>
               </table>
             </div>
@@ -321,6 +360,49 @@
         </div>
 
         <div class="right-column">
+          <section class="panel" id="budgets">
+            <div class="panel-heading">
+              <h2 class="panel-title">Monthly budgets</h2>
+              <span class="panel-meta">Spending limits</span>
+            </div>
+            <form class="management-form" id="budget-form">
+              <label>Category
+                <input id="budget-category" name="category" maxlength="100" placeholder="e.g. Fuel" required>
+              </label>
+              <label>Monthly limit
+                <input id="budget-limit" name="monthly_limit" type="number" min="0.01" max="1000000000" step="0.01" placeholder="e.g. 5000" required>
+              </label>
+              <button type="submit">Save budget</button>
+            </form>
+            <p class="management-status" id="budget-status" role="status" aria-live="polite"></p>
+            <div class="budget-list" id="budget-list"></div>
+            <p class="empty" id="budget-empty" hidden>No budgets set yet.</p>
+          </section>
+          <section class="panel" id="recurring">
+            <div class="panel-heading">
+              <h2 class="panel-title">Recurring bills</h2>
+              <span class="panel-meta">Monthly reminders</span>
+            </div>
+            <form class="management-form" id="recurring-form">
+              <label>Bill name
+                <input id="recurring-title" name="title" maxlength="200" placeholder="e.g. Rent" required>
+              </label>
+              <label>Amount
+                <input id="recurring-amount" name="amount" type="number" min="0.01" max="1000000000" step="0.01" placeholder="e.g. 15000" required>
+              </label>
+              <label>Category
+                <input id="recurring-category" name="category" maxlength="100" placeholder="e.g. Housing" required>
+              </label>
+              <label>Due day each month
+                <input id="recurring-day" name="day_of_month" type="number" min="1" max="28" value="1" required>
+              </label>
+              <button type="submit">Add bill reminder</button>
+            </form>
+            <p class="management-status" id="recurring-status" role="status" aria-live="polite"></p>
+            <p class="hint">Reminders appear here when you open the dashboard; no email or text is sent.</p>
+            <div class="recurring-list" id="recurring-list"></div>
+            <p class="empty" id="recurring-empty" hidden>No recurring bills added yet.</p>
+          </section>
           <section class="panel chat-panel" id="assistant">
             <div class="panel-heading">
               <h2 class="panel-title">Expense assistant</h2>
@@ -341,6 +423,32 @@
       <p class="footer-note">Pocket Money · Spend with intention · Your account data stays private</p>
     </main>
   </div>
+  <dialog class="edit-dialog" id="edit-expense-dialog" aria-labelledby="edit-expense-heading">
+    <form class="management-form" id="edit-expense-form">
+      <h2 id="edit-expense-heading">Edit expense</h2>
+      <input id="edit-expense-id" name="id" type="hidden">
+      <label>Merchant
+        <input id="edit-expense-merchant" name="merchant" maxlength="200" required>
+      </label>
+      <label>Category
+        <input id="edit-expense-category" name="category" maxlength="100" required>
+      </label>
+      <label>Amount
+        <input id="edit-expense-amount" name="amount" type="number" min="0.01" max="1000000000" step="0.01" required>
+      </label>
+      <label>Date
+        <input id="edit-expense-date" name="date" type="date" required>
+      </label>
+      <label>Notes
+        <input id="edit-expense-notes" name="notes" maxlength="2000">
+      </label>
+      <p class="management-status" id="edit-expense-status" role="status" aria-live="polite"></p>
+      <div class="edit-dialog-actions">
+        <button id="cancel-expense-edit" type="button">Cancel</button>
+        <button type="submit">Save changes</button>
+      </div>
+    </form>
+  </dialog>
 
   <script>
     let activeCurrency = "INR";
@@ -378,7 +486,7 @@
           allExpenses.length ? "No expenses match these filters." : "No expenses yet. Add one using the assistant.",
           "empty"
         );
-        empty.colSpan = 4;
+        empty.colSpan = 5;
         tbody.appendChild(row);
         return;
       }
@@ -401,6 +509,14 @@
         badge.textContent = expense.category;
         categoryCell.appendChild(badge);
         cell(row, money(expense.amount), "amount");
+        const actionCell = cell(row, "");
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "row-edit-button";
+        editButton.textContent = "Edit";
+        editButton.setAttribute("aria-label", `Edit ${expense.merchant} expense`);
+        editButton.addEventListener("click", () => openExpenseEditor(expense));
+        actionCell.appendChild(editButton);
         tbody.appendChild(row);
       }
     }
@@ -470,22 +586,149 @@
       }
     }
 
+    function renderBudgets(budgets, categoryBreakdown) {
+      const container = document.getElementById("budget-list");
+      const empty = document.getElementById("budget-empty");
+      container.replaceChildren();
+      const entries = Object.entries(budgets || {}).sort(([a], [b]) => a.localeCompare(b));
+      empty.hidden = entries.length > 0;
+      for (const [category, limit] of entries) {
+        const normalizedCategory = category.trim().toLowerCase();
+        const spentEntry = Object.entries(categoryBreakdown || {}).find(
+          ([name]) => name.trim().toLowerCase() === normalizedCategory
+        );
+        const spent = spentEntry ? Number(spentEntry[1]) : 0;
+        const percentage = Number(limit) > 0 ? spent / Number(limit) * 100 : 0;
+        const row = document.createElement("div");
+        row.className = "budget-row";
+        const top = document.createElement("div");
+        top.className = "budget-row-top";
+        const details = document.createElement("div");
+        const name = document.createElement("span");
+        name.className = "budget-name";
+        name.textContent = category;
+        const meta = document.createElement("span");
+        meta.className = "budget-meta";
+        meta.textContent = percentage >= 100
+          ? `${Math.round(percentage)}% used · Over budget`
+          : percentage >= 80
+            ? `${Math.round(percentage)}% used · Near limit`
+            : `${Math.round(percentage)}% used this month`;
+        details.append(name, meta);
+        const amount = document.createElement("span");
+        amount.className = "budget-amount";
+        amount.textContent = `${money(spent)} / ${money(Number(limit))}`;
+        top.append(details, amount);
+        const track = document.createElement("div");
+        track.className = "budget-progress";
+        track.setAttribute("role", "progressbar");
+        track.setAttribute("aria-label", `${category} monthly budget`);
+        track.setAttribute("aria-valuemin", "0");
+        track.setAttribute("aria-valuemax", "100");
+        track.setAttribute("aria-valuenow", String(Math.min(100, Math.round(percentage))));
+        const fill = document.createElement("div");
+        fill.className = "budget-progress-fill";
+        if (percentage >= 100) fill.classList.add("over-limit");
+        else if (percentage >= 80) fill.classList.add("near-limit");
+        fill.style.setProperty("--progress", `${Math.min(100, Math.max(0, percentage))}%`);
+        track.appendChild(fill);
+        const actions = document.createElement("div");
+        actions.className = "budget-row-top";
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "management-action";
+        remove.textContent = "Remove budget";
+        remove.setAttribute("aria-label", `Remove ${category} budget`);
+        remove.addEventListener("click", () => removeBudget(category));
+        actions.appendChild(remove);
+        row.append(top, track, actions);
+        container.appendChild(row);
+      }
+    }
+
+    function renderRecurringExpenses(expenses) {
+      const container = document.getElementById("recurring-list");
+      const empty = document.getElementById("recurring-empty");
+      container.replaceChildren();
+      const items = expenses || [];
+      empty.hidden = items.length > 0;
+      for (const expense of items) {
+        const row = document.createElement("div");
+        row.className = "recurring-row";
+        const top = document.createElement("div");
+        top.className = "recurring-row-top";
+        const details = document.createElement("div");
+        const name = document.createElement("span");
+        name.className = "recurring-name";
+        name.textContent = expense.title;
+        const meta = document.createElement("span");
+        meta.className = "recurring-meta";
+        meta.textContent = `${expense.category} · due ${expense.next_due_date}`;
+        details.append(name, meta);
+        const amount = document.createElement("span");
+        amount.className = "recurring-amount";
+        amount.textContent = money(Number(expense.amount));
+        top.append(details, amount);
+        const bottom = document.createElement("div");
+        bottom.className = "recurring-row-top";
+        const due = document.createElement("span");
+        due.className = "recurring-due";
+        due.textContent = expense.days_until_due === 0
+          ? "Due today"
+          : expense.days_until_due <= 7
+            ? `Due in ${expense.days_until_due} days`
+            : `Due on day ${expense.day_of_month}`;
+        bottom.appendChild(due);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "management-action";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", `Remove ${expense.title} reminder`);
+        remove.addEventListener("click", () => removeRecurringExpense(expense.id));
+        bottom.appendChild(remove);
+        row.append(top, bottom);
+        container.appendChild(row);
+      }
+    }
+
+    function openExpenseEditor(expense) {
+      document.getElementById("edit-expense-id").value = expense.id;
+      document.getElementById("edit-expense-merchant").value = expense.merchant;
+      document.getElementById("edit-expense-category").value = expense.category;
+      document.getElementById("edit-expense-amount").value = expense.amount;
+      document.getElementById("edit-expense-date").value = expense.date;
+      document.getElementById("edit-expense-notes").value = expense.notes || "";
+      document.getElementById("edit-expense-status").textContent = "";
+      document.getElementById("edit-expense-dialog").showModal();
+    }
+
     async function refreshDashboard() {
       const status = document.getElementById("load-status");
       status.textContent = "";
       status.className = "status";
       try {
-        const [summaryResponse, expensesResponse, settingsResponse, categoryTotalsResponse] = await Promise.all([
+        const [
+          summaryResponse,
+          expensesResponse,
+          settingsResponse,
+          categoryTotalsResponse,
+          budgetsResponse,
+          recurringResponse
+        ] = await Promise.all([
           fetch("/api/summary"),
           fetch("/api/expenses"),
           fetch("/api/settings"),
-          fetch("/api/expenses/category-totals")
+          fetch("/api/expenses/category-totals"),
+          fetch("/api/budgets"),
+          fetch("/api/recurring-expenses")
         ]);
         if (
           summaryResponse.status === 401 ||
           expensesResponse.status === 401 ||
           settingsResponse.status === 401 ||
-          categoryTotalsResponse.status === 401
+          categoryTotalsResponse.status === 401 ||
+          budgetsResponse.status === 401 ||
+          recurringResponse.status === 401
         ) {
           window.location.assign("/login");
           return;
@@ -494,7 +737,9 @@
           !summaryResponse.ok ||
           !expensesResponse.ok ||
           !settingsResponse.ok ||
-          !categoryTotalsResponse.ok
+          !categoryTotalsResponse.ok ||
+          !budgetsResponse.ok ||
+          !recurringResponse.ok
         ) {
           throw new Error("Could not load dashboard data. Please refresh and try again.");
         }
@@ -502,6 +747,8 @@
         const data = await expensesResponse.json();
         const userSettings = await settingsResponse.json();
         const categoryTotals = await categoryTotalsResponse.json();
+        const budgets = await budgetsResponse.json();
+        const recurring = await recurringResponse.json();
         const savedCurrency = userSettings.settings.default_currency || "INR";
         const currencySelect = document.getElementById("currency-select");
         if (![...currencySelect.options].some(option => option.value === savedCurrency)) {
@@ -531,10 +778,12 @@
         renderExpenses();
         renderBreakdown(summary.category_breakdown);
         renderCategoryTotals(categoryTotals.category_totals);
+        renderBudgets(budgets.budgets, summary.category_breakdown);
+        renderRecurringExpenses(recurring.recurring_expenses);
 
         const alerts = summary.budget_alerts || [];
         if (alerts.length) {
-          const alertText = document.createElement("p");
+          const alertText = document.createElement("span");
           alertText.className = "alerts";
           alertText.textContent = `⚠ ${alerts.join(" ")}`;
           status.appendChild(alertText);
@@ -570,6 +819,180 @@
         status.textContent = "Currency saved.";
       } catch (error) {
         status.textContent = error.message;
+      }
+    });
+
+    document.getElementById("budget-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const status = document.getElementById("budget-status");
+      status.textContent = "";
+      try {
+        const response = await fetch("/api/budgets", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            category: document.getElementById("budget-category").value,
+            monthly_limit: Number(document.getElementById("budget-limit").value)
+          })
+        });
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.detail || "Could not save this budget.");
+        }
+        form.reset();
+        await refreshDashboard();
+        status.textContent = "Budget saved.";
+      } catch (error) {
+        status.textContent = error.message || "Could not save this budget.";
+      }
+    });
+
+    async function removeBudget(category) {
+      if (!window.confirm(`Remove the ${category} monthly budget?`)) return;
+      const status = document.getElementById("budget-status");
+      try {
+        const response = await fetch(`/api/budgets/${encodeURIComponent(category)}`, {
+          method: "DELETE"
+        });
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) throw new Error("Could not remove this budget.");
+        await refreshDashboard();
+        status.textContent = "Budget removed.";
+      } catch (error) {
+        status.textContent = error.message || "Could not remove this budget.";
+      }
+    }
+
+    document.getElementById("recurring-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const status = document.getElementById("recurring-status");
+      status.textContent = "";
+      try {
+        const response = await fetch("/api/recurring-expenses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: document.getElementById("recurring-title").value,
+            amount: Number(document.getElementById("recurring-amount").value),
+            category: document.getElementById("recurring-category").value,
+            day_of_month: Number(document.getElementById("recurring-day").value)
+          })
+        });
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.detail || "Could not add this bill reminder.");
+        }
+        form.reset();
+        document.getElementById("recurring-day").value = "1";
+        await refreshDashboard();
+        status.textContent = "Bill reminder added.";
+      } catch (error) {
+        status.textContent = error.message || "Could not add this bill reminder.";
+      }
+    });
+
+    async function removeRecurringExpense(recurringId) {
+      if (!window.confirm("Remove this recurring bill reminder?")) return;
+      const status = document.getElementById("recurring-status");
+      try {
+        const response = await fetch(`/api/recurring-expenses/${encodeURIComponent(recurringId)}`, {
+          method: "DELETE"
+        });
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) throw new Error("Could not remove this bill reminder.");
+        await refreshDashboard();
+        status.textContent = "Bill reminder removed.";
+      } catch (error) {
+        status.textContent = error.message || "Could not remove this bill reminder.";
+      }
+    }
+
+    document.getElementById("edit-expense-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const expenseId = document.getElementById("edit-expense-id").value;
+      const status = document.getElementById("edit-expense-status");
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      status.textContent = "";
+      try {
+        const response = await fetch(`/api/expenses/${encodeURIComponent(expenseId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            merchant: document.getElementById("edit-expense-merchant").value,
+            category: document.getElementById("edit-expense-category").value,
+            amount: Number(document.getElementById("edit-expense-amount").value),
+            date: document.getElementById("edit-expense-date").value,
+            notes: document.getElementById("edit-expense-notes").value
+          })
+        });
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.detail || "Could not update this expense.");
+        }
+        document.getElementById("edit-expense-dialog").close();
+        await refreshDashboard();
+      } catch (error) {
+        status.textContent = error.message || "Could not update this expense.";
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    document.getElementById("cancel-expense-edit").addEventListener("click", () => {
+      document.getElementById("edit-expense-dialog").close();
+    });
+
+    document.getElementById("backup-button").addEventListener("click", async event => {
+      const button = event.currentTarget;
+      const status = document.getElementById("backup-status");
+      button.disabled = true;
+      status.textContent = "Preparing your private backup...";
+      try {
+        const response = await fetch("/api/account/backup");
+        if (response.status === 401) {
+          window.location.assign("/login");
+          return;
+        }
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.detail || "Could not prepare your backup.");
+        }
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = `pocket-money-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(downloadUrl);
+        status.textContent = "Backup downloaded. Keep this file private.";
+      } catch (error) {
+        status.textContent = error.message || "Could not prepare your backup.";
+      } finally {
+        button.disabled = false;
       }
     });
 

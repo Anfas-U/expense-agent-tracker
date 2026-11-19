@@ -418,6 +418,14 @@ class UserDatabase:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_all_recurring_expenses(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM recurring_expenses WHERE user_id = %s ORDER BY id",
+                (self.user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def mark_recurring_logged(self, recurring_id: str, date_str: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -505,6 +513,25 @@ class UserDatabase:
                 """,
                 (self.user_id, receipt_id),
             ).fetchone()
+
+    def get_all_receipts(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, filename, content_type, data, created_at
+                FROM receipts WHERE user_id = %s ORDER BY created_at, id
+                """,
+                (self.user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_receipt_storage_size(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(OCTET_LENGTH(data)), 0) AS total_bytes FROM receipts WHERE user_id = %s",
+                (self.user_id,),
+            ).fetchone()
+        return int(row["total_bytes"])
 
     def delete_receipt(self, receipt_id: str) -> bool:
         with self._connect() as conn:

@@ -32,6 +32,7 @@ _WEB_PAGE = Path(__file__).with_name("web.html")
 _LOGIN_PAGE = Path(__file__).with_name("login.html")
 _SESSION_COOKIE = "pocket_money_session"
 _SESSION_MAX_AGE = 30 * 24 * 60 * 60
+_MAX_BACKUP_RECEIPT_BYTES = 25 * 1024 * 1024
 _database_instance: Optional[PostgresDatabase] = None
 _PASSWORD_SCRYPT_N = 2**14
 
@@ -153,6 +154,31 @@ class BudgetRequest(BaseModel):
         if not category:
             raise ValueError("Category cannot be blank.")
         return category
+
+
+class ExpenseUpdateRequest(BaseModel):
+    merchant: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    amount: Optional[float] = Field(default=None, gt=0, le=1_000_000_000)
+    date: Optional[dt.date] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("merchant", "category")
+    @classmethod
+    def clean_expense_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        text = value.strip()
+        if not text:
+            raise ValueError("This value cannot be blank.")
+        return text
+
+    @model_validator(mode="after")
+    def require_updates(self) -> "ExpenseUpdateRequest":
+        updates = self.model_dump(exclude_unset=True)
+        if not updates or any(value is None for value in updates.values()):
+            raise ValueError("Provide at least one expense field to update.")
+        return self
 
 
 class UserSettingsRequest(BaseModel):
@@ -324,6 +350,19 @@ def expense_category_totals(
     }
 
 
+@app.patch("/api/expenses/{expense_id}")
+def update_expense(
+    expense_id: str,
+    body: ExpenseUpdateRequest,
+    user: dict[str, str] = Depends(get_current_user),
+    database: PostgresDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    updates = body.model_dump(exclude_unset=True)
+    if not _scoped_database(database, user).update_expense(expense_id, updates):
+        raise HTTPException(status_code=404, detail="Expense not found.")
+    return {"ok": True}
+
+
 @app.delete("/api/expenses/{expense_id}", status_code=204)
 def delete_expense(
     expense_id: str,
@@ -364,6 +403,60 @@ def export_expenses(
         headers={
             "Content-Disposition": (
                 f'attachment; filename="pocket-money-expenses-{dt.date.today().isoformat()}.csv"'
+            )
+        },
+    )
+
+
+@app.get("/api/account/backup")
+def download_account_backup(
+    user: dict[str, str] = Depends(get_current_user),
+    database: PostgresDatabase = Depends(get_database),
+) -> Response:
+    """Download this account's private records and receipt images as JSON."""
+    scoped_db = _scoped_database(database, user)
+    if scoped_db.get_receipt_storage_size() > _MAX_BACKUP_RECEIPT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Receipt images are too large for a single download. "
+                "Use the database provider's backup and restore tools."
+            ),
+        )
+    receipts = scoped_db.get_all_receipts()
+    backup = {
+        "format": "pocket-money-account-backup",
+        "version": 1,
+        "exported_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "username": user["username"],
+        "expenses": [
+            expense.model_dump(mode="json")
+            for expense in scoped_db.get_all_expenses(limit=None)
+        ],
+        "budgets": scoped_db.get_all_budgets(),
+        "merchant_rules": scoped_db.get_all_merchant_rules(),
+        "recurring_expenses": scoped_db.get_all_recurring_expenses(),
+        "settings": scoped_db.get_user_settings(),
+        "receipts": [
+            {
+                "id": receipt["id"],
+                "filename": receipt["filename"],
+                "content_type": receipt["content_type"],
+                "created_at": (
+                    receipt["created_at"].isoformat()
+                    if hasattr(receipt["created_at"], "isoformat")
+                    else str(receipt["created_at"])
+                ),
+                "data_base64": base64.b64encode(bytes(receipt["data"])).decode("ascii"),
+            }
+            for receipt in receipts
+        ],
+    }
+    return JSONResponse(
+        content=backup,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="pocket-money-backup-{dt.date.today().isoformat()}.json"'
             )
         },
     )
@@ -472,9 +565,27 @@ def list_recurring_expenses(
     user: dict[str, str] = Depends(get_current_user),
     database: PostgresDatabase = Depends(get_database),
 ) -> dict[str, list[dict[str, Any]]]:
-    return {
-        "recurring_expenses": _scoped_database(database, user).get_active_recurring_expenses()
-    }
+    scoped_db = _scoped_database(database, user)
+    today = dt.datetime.now(
+        ZoneInfo(scoped_db.get_user_settings()["default_timezone"])
+    ).date()
+    expenses = []
+    for expense in scoped_db.get_active_recurring_expenses():
+        due_day = min(max(int(expense.get("day_of_month", 1)), 1), 28)
+        next_due = dt.date(today.year, today.month, due_day)
+        if next_due < today:
+            if today.month == 12:
+                next_due = dt.date(today.year + 1, 1, due_day)
+            else:
+                next_due = dt.date(today.year, today.month + 1, due_day)
+        expenses.append(
+            {
+                **expense,
+                "next_due_date": next_due.isoformat(),
+                "days_until_due": (next_due - today).days,
+            }
+        )
+    return {"recurring_expenses": expenses}
 
 
 @app.post("/api/recurring-expenses", status_code=201)
